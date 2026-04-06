@@ -32,7 +32,8 @@
       "~/.pi",
       "~/.nix-profile",
       "~/hotel",
-      "~/Library"
+      "~/Library",
+      "~/.npm-global"
     ],
     "allowWrite": [
       ".",
