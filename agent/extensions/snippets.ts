@@ -1,4 +1,3 @@
-/// <reference path="/Users/jack/Library/pnpm/global/5/node_modules/@mariozechner/pi-coding-agent/dist/index.d.ts" />
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 const SNIPPETS: Record<string, string> = {

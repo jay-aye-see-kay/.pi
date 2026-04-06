@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@mariozechner/pi-coding-agent": [
+        "../../../.npm-global/lib/node_modules/@mariozechner/pi-coding-agent/dist/index.d.ts"
+      ],
+      "@sinclair/typebox": [
+        "../../../.npm-global/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@sinclair/typebox/build/cjs/index.d.ts"
+      ],
+      "@mariozechner/pi-tui": [
+        "../../../.npm-global/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-tui/dist/index.d.ts"
+      ],
+      "@mariozechner/pi-ai": [
+        "../../../.npm-global/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/index.d.ts"
+      ]
+    }
+  },
+  "include": [
+    "./**/*.ts"
+  ]
+}
