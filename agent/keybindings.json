@@ -1,0 +1,39 @@
+{
+  "// --- EDITOR: emacs-style movement (mostly defaults, made explicit) ---": "",                
+  "tui.editor.cursorLeft":      ["left", "ctrl+b"],
+  "tui.editor.cursorRight":     ["right", "ctrl+f"],
+  "tui.editor.cursorWordLeft":  ["alt+left", "ctrl+left", "alt+b"],
+  "tui.editor.cursorWordRight": ["alt+right", "ctrl+right", "alt+f"],
+  "tui.editor.cursorLineStart": ["home", "ctrl+a"],
+  "tui.editor.cursorLineEnd":   ["end", "ctrl+e"],
+  "tui.editor.deleteWordBackward": ["ctrl+w", "alt+backspace"],
+
+  "// --- EDITOR: ctrl+n/p for up/down in multiline editor ---": "",
+  "tui.editor.cursorUp":   ["up", "ctrl+p"],
+  "tui.editor.cursorDown": ["down", "ctrl+n"],
+
+  "// --- LIST NAVIGATION: ctrl+n/p everywhere ---": "",   
+  "tui.select.up":       ["up", "ctrl+p"],
+  "tui.select.down":     ["down", "ctrl+n"],
+  "tui.select.pageUp":   ["pageUp"],
+  "tui.select.pageDown": ["pageDown"],
+  "tui.select.confirm":  ["enter"],
+  "tui.select.cancel":   ["escape", "ctrl+c"],
+
+  "// --- DISPLACED: move ctrl+p away from model cycling ---": "",
+  "app.model.cycleForward":  ["alt+p"],
+  "app.model.cycleBackward": ["shift+alt+p"],
+
+  "// --- DISPLACED: move ctrl+p / ctrl+n away from session picker toggles ---": "",
+  "app.session.togglePath":         ["alt+p"],
+  "app.session.toggleNamedFilter":  ["alt+n"],
+  "app.session.toggleSort":         ["ctrl+s"],
+
+  "// --- TREE NAVIGATION ---": "",
+  "app.tree.foldOrUp":   ["ctrl+left", "alt+left", "ctrl+h"],
+  "app.tree.unfoldOrDown": ["ctrl+right", "alt+right", "ctrl+l"],
+
+  "// like ctrl-x ctrl-g": "",
+  "app.editor.external": ["ctrl+x"],
+  "app.session.tree": ["ctrl+g"]
+}
