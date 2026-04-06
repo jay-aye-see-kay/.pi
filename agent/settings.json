@@ -4,9 +4,6 @@
   "defaultModel": "claude-opus-4.5",
   "defaultThinkingLevel": "medium",
   "theme": "light",
-  "npmCommand": [
-    "pnpm"
-  ],
   "packages": [
     "npm:pi-sandbox"
   ]
