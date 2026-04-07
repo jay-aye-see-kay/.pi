@@ -1,9 +1,9 @@
 {
   "enabled": true,
-  "allowBrowserProcess": false,
+  "allowBrowserProcess": true,
   "network": {
     "allowLocalBinding": true,
-    "allowAllUnixSockets": false,
+    "allowAllUnixSockets": true,
     "allowedDomains": [
       "github.com",
       "*.github.com",
@@ -14,7 +14,9 @@
       "mcp.context7.com",
       "proxy.golang.org",
       "sum.golang.org",
-      "storage.googleapis.com"
+      "storage.googleapis.com",
+      "nixos.org",
+      "*.nixos.org"
     ],
     "deniedDomains": []
   },
@@ -30,10 +32,15 @@
       "~/.local",
       "~/.cache",
       "~/.pi",
+      "~/.gem_cache",
       "~/.nix-profile",
       "~/hotel",
       "~/Library",
-      "~/.npm-global"
+      "~/.yarnrc",
+      "~/.yarnrc.yml",
+      "~/.npmrc",
+      "~/.npm-global",
+      "/var/folders"
     ],
     "allowWrite": [
       ".",
