@@ -27,34 +27,36 @@
     ],
     "allowRead": [
       ".",
-      "~/code",
-      "~/.config",
-      "~/.local",
+      "/nix",
+      "/var/folders",
       "~/.cache",
-      "~/.pi",
+      "~/.config",
       "~/.gem_cache",
+      "~/.local",
       "~/.nix-profile",
-      "~/hotel",
-      "~/Library",
+      "~/.npm-global",
+      "~/.npmrc",
+      "~/.pi",
       "~/.yarnrc",
       "~/.yarnrc.yml",
-      "~/.npmrc",
-      "~/.npm-global",
-      "/var/folders"
+      "~/Library",
+      "~/code",
+      "~/hotel",
+      "~/nixfiles"
     ],
     "allowWrite": [
       ".",
       "/tmp",
+      "~/.cache/uv",
       "~/.pi",
-      "~/Library/pnpm",
-      "~/.cache/uv"
+      "~/Library/pnpm"
     ],
     "denyWrite": [
-      "~/.pi/agent/sandbox.json",
+      "*.key",
+      "*.pem",
       ".env",
       ".env.*",
-      "*.pem",
-      "*.key"
+      "~/.pi/agent/sandbox.json"
     ]
   }
 }
