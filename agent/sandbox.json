@@ -5,6 +5,7 @@
     "allowLocalBinding": true,
     "allowAllUnixSockets": true,
     "allowedDomains": [
+      "localhost",
       "github.com",
       "*.github.com",
       "raw.githubusercontent.com",
@@ -22,14 +23,15 @@
   },
   "filesystem": {
     "denyRead": [
-      "/Users",
-      "/home"
+      "/"
     ],
     "allowRead": [
       ".",
       "/nix",
-      "/var/folders",
+      "/tmp",
+      "/var",
       "~/.cache",
+      "~/.claude",
       "~/.config",
       "~/.gem_cache",
       "~/.local",
@@ -47,8 +49,11 @@
     "allowWrite": [
       ".",
       "/tmp",
+      "/var",
       "~/.cache/uv",
+      "~/.local/share/devbox",
       "~/.pi",
+      "~/Library/Caches/devbox",
       "~/Library/pnpm"
     ],
     "denyWrite": [
@@ -56,6 +61,7 @@
       "*.pem",
       ".env",
       ".env.*",
+      "./.pi/sandbox.json",
       "~/.pi/agent/sandbox.json"
     ]
   }
