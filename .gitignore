@@ -1,3 +1,4 @@
 node_modules
 /agent/auth.json
 /agent/sessions/
+*.log
