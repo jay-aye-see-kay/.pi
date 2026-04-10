@@ -4,6 +4,9 @@
   "defaultModel": "claude-opus-4.5",
   "defaultThinkingLevel": "medium",
   "theme": "light",
+  "skills": [
+    "~/.claude/skills"
+  ],
   "packages": [
     "npm:pi-sandbox"
   ]
