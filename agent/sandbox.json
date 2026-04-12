@@ -23,7 +23,7 @@
   },
   "filesystem": {
     "denyRead": [
-      "/"
+      "~"
     ],
     "allowRead": [
       ".",
