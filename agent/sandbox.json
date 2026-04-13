@@ -42,6 +42,7 @@
       "~/.yarnrc",
       "~/.yarnrc.yml",
       "~/Library",
+      "~/go",
       "~/code",
       "~/hotel",
       "~/nixfiles"
@@ -53,8 +54,9 @@
       "~/.cache/uv",
       "~/.local/share/devbox",
       "~/.pi",
-      "~/Library/Caches/devbox",
-      "~/Library/pnpm"
+      "~/Library/Caches",
+      "~/Library/pnpm",
+      "~/go"
     ],
     "denyWrite": [
       "*.key",
