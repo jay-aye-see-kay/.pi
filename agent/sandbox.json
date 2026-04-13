@@ -17,7 +17,8 @@
       "sum.golang.org",
       "storage.googleapis.com",
       "nixos.org",
-      "*.nixos.org"
+      "*.nixos.org",
+      "mcp.atlassian.com"
     ],
     "deniedDomains": []
   },
@@ -32,9 +33,11 @@
       "/var",
       "~/.cache",
       "~/.claude",
+      "~/.claude.json",
       "~/.config",
       "~/.gem_cache",
       "~/.local",
+      "~/.mcporter",
       "~/.nix-profile",
       "~/.npm-global",
       "~/.npmrc",
