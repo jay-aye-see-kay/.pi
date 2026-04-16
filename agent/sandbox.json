@@ -20,7 +20,9 @@
       "storage.googleapis.com",
       "sum.golang.org",
       "*.nixos.org",
-      "mcp.atlassian.com"
+      "mcp.atlassian.com",
+      "*.amazonaws.com",
+      "*.awsapps.com"
     ],
     "deniedDomains": []
   },
@@ -33,6 +35,7 @@
       "/nix",
       "/tmp",
       "/var",
+      "~/.aws/config",
       "~/.cache",
       "~/.claude",
       "~/.claude.json",
