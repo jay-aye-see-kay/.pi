@@ -60,6 +60,7 @@
       "~/.cache/uv",
       "~/.local/share/devbox",
       "~/.local/share/hotel",
+      "~/.mcporter",
       "~/.pi",
       "~/Library/Caches",
       "~/Library/pnpm",
