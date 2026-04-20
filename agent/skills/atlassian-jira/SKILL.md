@@ -17,6 +17,7 @@ jira issue view KEY --plain
 # Search issues
 jira issue list -q'project = FEF AND status = "In Progress"' --plain
 jira issue list -q'parent = EPIC-KEY' --plain   # Epic children
+jira issue list -q'project = FEF AND type = Support AND status NOT IN (Done, "Won'\''t Do")' --plain  # Active support cards
 jira issue list --paginate 20 --plain           # Limit results (not --limit)
 
 # Create issue
