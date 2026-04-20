@@ -26,8 +26,12 @@ jira issue create -pFEF -tTask -s"Title" -b"Description" --no-input
 jira issue edit KEY -s"New title" -b"New description" --no-input
 jira issue edit KEY --parent EPIC-KEY --no-input   # Add to epic
 
-# Assign
+# Assign (requires email)
 jira issue assign KEY "user@email.com"
+
+# Look up team emails (when user says "assign to <name>")
+$SKILL_DIR/bin/jira-team-emails          # Lists emails of recent FEF assignees
+$SKILL_DIR/bin/jira-team-emails PROJ     # For other projects
 
 # Components
 jira issue edit KEY -C "Component Name" --no-input

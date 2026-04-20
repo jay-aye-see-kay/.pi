@@ -1,0 +1,7 @@
+#!/bin/bash
+# List team member emails from recent issue assignees
+PROJECT=${1:-FEF}
+jira issue list -p"$PROJECT" -q'assignee IS NOT EMPTY' --paginate 100 --plain --columns key,assignee \
+  | tail -n +2 | sort -t$'\t' -k2 -u | cut -f1 \
+  | xargs -I{} jira issue view {} --raw 2>/dev/null \
+  | jq -r '.. | .emailAddress? // empty' | sort -u
