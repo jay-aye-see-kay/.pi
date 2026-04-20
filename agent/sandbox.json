@@ -21,6 +21,7 @@
       "sum.golang.org",
       "*.nixos.org",
       "mcp.atlassian.com",
+      "cultureamp.atlassian.net",
       "*.amazonaws.com",
       "*.awsapps.com"
     ],
