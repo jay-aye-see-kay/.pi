@@ -3,7 +3,7 @@
     "hotel-mcp": {
       "command": "hotel",
       "args": ["mcp-server"],
-      "lifecycle": "keep-alive"
+      "lifecycle": "lazy"
     },
     "atlassian": {
       "url": "https://mcp.atlassian.com/v1/sse",
