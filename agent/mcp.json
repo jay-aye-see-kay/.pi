@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "hotel-mcp": {
+      "command": "hotel",
+      "args": ["mcp-server"],
+      "lifecycle": "keep-alive"
+    }
+  }
+}

@@ -1,4 +1,5 @@
 node_modules
 /agent/auth.json
 /agent/sessions/
+/agent/mcp-cache.json
 *.log
