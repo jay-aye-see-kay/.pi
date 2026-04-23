@@ -64,6 +64,7 @@
       "/tmp",
       "/var",
       "~/.cache/gh",
+      "~/.cache/nix",
       "~/.cache/prek",
       "~/.cache/uv",
       "~/.local/share/devbox",
