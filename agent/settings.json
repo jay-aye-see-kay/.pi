@@ -9,7 +9,22 @@
   ],
   "packages": [
     "npm:pi-mcp-adapter",
-    "npm:pi-sandbox"
+    "npm:pi-sandbox",
+    "npm:pi-mermaid",
+    "npm:pi-web-access",
+    "npm:pi-subagents"
   ],
-  "quietStartup": true
+  "quietStartup": true,
+  "subagents": {
+    "agentOverrides": {
+      "scout": { "model": "github-copilot/gpt-5.4-mini" },
+      "planner": { "model": "github-copilot/claude-sonnet-4.5" },
+      "worker": { "model": "github-copilot/claude-sonnet-4.5" },
+      "reviewer": { "model": "github-copilot/claude-sonnet-4.5" },
+      "context-builder": { "model": "github-copilot/claude-sonnet-4.5" },
+      "researcher": { "model": "github-copilot/claude-sonnet-4.5" },
+      "oracle": { "model": "github-copilot/claude-opus-4.5" },
+      "oracle-executor": { "model": "github-copilot/claude-sonnet-4.5" }
+    }
+  }
 }
