@@ -28,8 +28,8 @@ function collectClaudeSkillDirs(startDir: string): string[] {
 
   while (true) {
     const claudeSkills = join(dir, ".claude", "skills");
-    // Don't duplicate user-level
-    if (resolve(claudeSkills) !== resolve(userClaudeSkills)) {
+    // Don't duplicate user-level, only add if exists
+    if (resolve(claudeSkills) !== resolve(userClaudeSkills) && existsSync(claudeSkills)) {
       skillDirs.push(claudeSkills);
     }
 
