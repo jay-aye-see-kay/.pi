@@ -25,7 +25,8 @@
       "mcp.atlassian.com",
       "cultureamp.atlassian.net",
       "*.amazonaws.com",
-      "*.awsapps.com"
+      "*.awsapps.com",
+      "docs.anthropic.com"
     ],
     "deniedDomains": []
   },
