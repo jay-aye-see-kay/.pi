@@ -1,4 +1,5 @@
-import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ProviderModelConfig, BashOperations } from "@mariozechner/pi-coding-agent";
+import { createLocalBashOperations } from "@mariozechner/pi-coding-agent";
 import { getModel } from "@mariozechner/pi-ai";
 import type { StreamFunction } from "@mariozechner/pi-ai";
 import { execSync } from "child_process";
@@ -25,6 +26,40 @@ async function loadStreamBedrock(): Promise<StreamFunction<"bedrock-converse-str
 
 const BEDROCK_AWS_PROFILE = "cultureamp-sandbox/BedrockDevTools";
 const BEDROCK_AWS_REGION = "us-west-2";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AWS Env Isolation
+//
+// The AWS SDK used by pi-ai's bedrock provider reads process.env directly.
+// If the user has AWS_PROFILE + AWS_ACCESS_KEY_ID both set (typical with
+// granted), the SDK logs a noisy "Multiple credential sources detected"
+// warning into the TUI. We also don't want the LLM provider to silently
+// fall back to whatever creds the user happens to have exported.
+//
+// Strategy: snapshot and strip every AWS_* env var at extension load so the
+// SDK only sees what we configure (profile + region via options). Re-inject
+// the originals into every bash tool invocation via a `tool_call` handler
+// so shell commands still run under the user's assumed role.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const userAwsEnv: Record<string, string> = {};
+for (const key of Object.keys(process.env)) {
+  if (key.startsWith("AWS_")) {
+    userAwsEnv[key] = process.env[key]!;
+    delete process.env[key];
+  }
+}
+
+function shellQuote(value: string): string {
+  // Wrap in single quotes, escape embedded single quotes as '\''.
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function awsEnvPrefix(): string {
+  const entries = Object.entries(userAwsEnv);
+  if (entries.length === 0) return "";
+  return entries.map(([k, v]) => `export ${k}=${shellQuote(v)}`).join("; ") + "; ";
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AWS Credential Refresh
@@ -220,5 +255,32 @@ export default async function (pi: ExtensionAPI) {
 
   pi.on("turn_start", async () => {
     if (needsRefresh()) refreshBedrockCredentials();
+  });
+
+  // Re-inject the user's original AWS_* env vars into every bash command
+  // so tools that talk to AWS (aws cli, terraform, etc.) see the role the
+  // user assumed before launching pi — not our stripped-down process env.
+  pi.on("tool_call", async (event) => {
+    if (event.toolName !== "bash") return;
+    const prefix = awsEnvPrefix();
+    if (!prefix) return;
+    event.input.command = prefix + event.input.command;
+  });
+
+  // Same treatment for `!cmd` / `!!cmd` user-typed bash. user_bash can't
+  // rewrite the command (it's a local in handleBashCommand), so instead we
+  // supply a BashOperations override that restores AWS_* via the spawned
+  // process env.
+  const localBash = createLocalBashOperations();
+  const awsAwareBash: BashOperations = {
+    exec: (command, cwd, options) =>
+      localBash.exec(command, cwd, {
+        ...options,
+        env: { ...process.env, ...options.env, ...userAwsEnv },
+      }),
+  };
+  pi.on("user_bash", async () => {
+    if (Object.keys(userAwsEnv).length === 0) return;
+    return { operations: awsAwareBash };
   });
 }
