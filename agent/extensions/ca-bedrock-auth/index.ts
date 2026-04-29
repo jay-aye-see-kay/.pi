@@ -1,15 +1,41 @@
 import type { ExtensionAPI, ProviderModelConfig } from "@mariozechner/pi-coding-agent";
 import { getModel } from "@mariozechner/pi-ai";
+import type { StreamFunction } from "@mariozechner/pi-ai";
 import { execSync } from "child_process";
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
+import { readFileSync, existsSync, realpathSync } from "fs";
+import { join, dirname } from "path";
 import { homedir } from "os";
+import { pathToFileURL } from "url";
 
-const AWS_PROFILE = "cultureamp-sandbox/BedrockDevTools";
-const AWS_REGION = "us-west-2";
+// Locate pi-ai's bedrock-provider.js by resolving the `pi` binary path,
+// then load streamBedrock directly. This bypasses pi-ai's api-registry which
+// pi's registerProvider monkey-patches to route through our extension's
+// streamSimple — calling stream()/streamSimple() from pi-ai would recurse.
+async function loadStreamBedrock(): Promise<StreamFunction<"bedrock-converse-stream", any>> {
+  const piBin = execSync("which pi", { encoding: "utf-8" }).trim();
+  const realBin = realpathSync(piBin);
+  const piPkgRoot = join(dirname(realBin), "..");
+  const bedrockProviderPath = join(
+    piPkgRoot,
+    "node_modules/@mariozechner/pi-ai/dist/bedrock-provider.js",
+  );
+  const mod: any = await import(pathToFileURL(bedrockProviderPath).href);
+  return mod.bedrockProviderModule.streamBedrock;
+}
+
+const BEDROCK_AWS_PROFILE = "cultureamp-sandbox/BedrockDevTools";
+const BEDROCK_AWS_REGION = "us-west-2";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AWS Credential Refresh
+//
+// We keep AWS creds for Bedrock isolated from the user's shell env so that
+// bash tool calls run against whatever profile the user assumed before
+// starting pi (e.g. cultureamp-development/ReadOnly), not the Bedrock
+// profile. To do that we never set process.env.AWS_*; instead we ensure
+// the credentials cache that `granted credential-process` populates is
+// fresh, and we pass `profile`/`region` directly into the Bedrock SDK
+// options at call time (see streamSimple below).
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface AwsCredentials {
@@ -21,11 +47,11 @@ interface AwsCredentials {
 
 let credentialExpiry: number | null = null;
 
-function refreshAwsCredentials(): boolean {
+function refreshBedrockCredentials(): boolean {
   try {
     const output = execSync(
-      `granted credential-process --profile "${AWS_PROFILE}" 2>/dev/null`,
-      { encoding: "utf-8", timeout: 30000 }
+      `granted credential-process --profile "${BEDROCK_AWS_PROFILE}" 2>/dev/null`,
+      { encoding: "utf-8", timeout: 30000 },
     );
 
     const parsed = JSON.parse(output);
@@ -35,21 +61,12 @@ function refreshAwsCredentials(): boolean {
       return false;
     }
 
-    process.env.AWS_ACCESS_KEY_ID = creds.AccessKeyId;
-    process.env.AWS_SECRET_ACCESS_KEY = creds.SecretAccessKey;
-    process.env.AWS_SESSION_TOKEN = creds.SessionToken;
-    process.env.AWS_REGION = AWS_REGION;
-    process.env.AWS_DEFAULT_REGION = AWS_REGION;
-    // Unset AWS_PROFILE to avoid SDK warning about multiple credential sources
-    delete process.env.AWS_PROFILE;
-
     if (creds.Expiration) {
       credentialExpiry = new Date(creds.Expiration).getTime() - 5 * 60 * 1000;
     }
 
     return true;
   } catch (error) {
-    // Silent fail - credentials not available
     return false;
   }
 }
@@ -82,7 +99,6 @@ const FALLBACK_DEFAULTS: ModelMeta = {
 };
 
 function getModelMeta(modelId: string): ModelMeta {
-  // Try exact match first
   const exact = getModel("amazon-bedrock", modelId as any);
   if (exact) {
     return {
@@ -95,7 +111,6 @@ function getModelMeta(modelId: string): ModelMeta {
     };
   }
 
-  // Try without "us." prefix (cross-region inference profiles)
   if (modelId.startsWith("us.")) {
     const baseId = modelId.slice(3);
     const base = getModel("amazon-bedrock", baseId as any);
@@ -132,7 +147,6 @@ function loadWilmaProfiles(): WilmaProfile[] {
   const modelsPath = join(homedir(), ".pi/agent/extensions/ca-bedrock-auth/models.json");
 
   if (!existsSync(modelsPath)) {
-    // Silent fail - no models loaded, user needs to run wilma
     return [];
   }
 
@@ -141,7 +155,6 @@ function loadWilmaProfiles(): WilmaProfile[] {
     const profiles: WilmaProfile[] = JSON.parse(content);
     return profiles.filter((p) => p.status === "ACTIVE");
   } catch (error) {
-    // Silent fail - invalid JSON
     return [];
   }
 }
@@ -151,22 +164,21 @@ function loadWilmaProfiles(): WilmaProfile[] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default async function (pi: ExtensionAPI) {
-  // Refresh credentials at startup
-  refreshAwsCredentials();
+  refreshBedrockCredentials();
 
-  // Load wilma profiles
   const profiles = loadWilmaProfiles();
   if (profiles.length === 0) {
     return;
   }
 
-  // Build ARN map: modelId → profileArn
+  const streamBedrock = await loadStreamBedrock();
+
+  // ARN map: modelId → application-inference-profile ARN
   const arnMap = new Map<string, string>();
   for (const profile of profiles) {
     arnMap.set(profile.modelId, profile.profileArn);
   }
 
-  // Transform to pi models (with real AWS pricing from pi-ai registry)
   const models = profiles.map((profile): ProviderModelConfig => {
     const meta = getModelMeta(profile.modelId);
     return {
@@ -180,36 +192,33 @@ export default async function (pi: ExtensionAPI) {
     };
   });
 
-
-
-  // Register provider (replaces built-in bedrock models)
+  // Custom streamSimple wraps pi-ai's dispatch and:
+  //   1. Injects `profile` + `region` into BedrockOptions so the AWS SDK
+  //      uses the Bedrock profile *only* for this call, leaving the
+  //      shell's AWS_* env vars untouched.
+  //   2. Swaps modelId → application-inference-profile ARN.
   pi.registerProvider("amazon-bedrock", {
-    baseUrl: `https://bedrock-runtime.${AWS_REGION}.amazonaws.com`,
+    baseUrl: `https://bedrock-runtime.${BEDROCK_AWS_REGION}.amazonaws.com`,
     apiKey: "aws-sdk",
     api: "bedrock-converse-stream",
     models,
-  });
-
-  // Swap modelId → ARN before API request
-  pi.on("before_provider_request", (event, ctx) => {
-    const model = ctx.model;
-    if (model?.provider === "amazon-bedrock") {
+    streamSimple: (model, context, options) => {
       const arn = arnMap.get(model.id);
-      if (arn && event.payload && typeof event.payload === "object") {
-        const payload = event.payload as Record<string, unknown>;
-        if (payload.modelId === model.id) {
-          return { ...payload, modelId: arn };
-        }
-      }
-    }
+      const effectiveModel = arn ? { ...model, id: arn } : model;
+      const effectiveOptions = {
+        ...options,
+        profile: BEDROCK_AWS_PROFILE,
+        region: BEDROCK_AWS_REGION,
+      };
+      return streamBedrock(effectiveModel as any, context, effectiveOptions as any);
+    },
   });
 
-  // Credential refresh hooks
   pi.on("session_start", async () => {
-    if (needsRefresh()) refreshAwsCredentials();
+    if (needsRefresh()) refreshBedrockCredentials();
   });
 
   pi.on("turn_start", async () => {
-    if (needsRefresh()) refreshAwsCredentials();
+    if (needsRefresh()) refreshBedrockCredentials();
   });
 }
