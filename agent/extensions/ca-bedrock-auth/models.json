@@ -1,0 +1,152 @@
+[
+  {
+    "profileArn": "arn:aws:bedrock:us-west-2:529105607725:application-inference-profile/1u2zrz878puk",
+    "profileName": "jackrose-nvidianemotronsuper3120b-8f9ff8",
+    "modelId": "nvidia.nemotron-super-3-120b",
+    "status": "ACTIVE",
+    "createdAt": "2026-04-29",
+    "tags": {
+      "bedrock-user": "jack.rose@cultureamp.com",
+      "created-by": "wilma",
+      "created-date": "2026-04-29",
+      "model-id": "nvidia.nemotron-super-3-120b",
+      "team": "delivery-engineering"
+    },
+    "description": "NVIDIA Nemotron 3 Super 120B A12B"
+  },
+  {
+    "profileArn": "arn:aws:bedrock:us-west-2:529105607725:application-inference-profile/mts8zm7yjzd7",
+    "profileName": "jackrose-zaiglm5-0694a1",
+    "modelId": "zai.glm-5",
+    "status": "ACTIVE",
+    "createdAt": "2026-04-29",
+    "tags": {
+      "bedrock-user": "jack.rose@cultureamp.com",
+      "created-by": "wilma",
+      "created-date": "2026-04-29",
+      "model-id": "zai.glm-5",
+      "team": "delivery-engineering"
+    },
+    "description": "GLM 5"
+  },
+  {
+    "profileArn": "arn:aws:bedrock:us-west-2:529105607725:application-inference-profile/t0k2cg9vxgs9",
+    "profileName": "jackrose-deepseekv32-053673",
+    "modelId": "deepseek.v3.2",
+    "status": "ACTIVE",
+    "createdAt": "2026-04-29",
+    "tags": {
+      "bedrock-user": "jack.rose@cultureamp.com",
+      "created-by": "wilma",
+      "created-date": "2026-04-29",
+      "model-id": "deepseek.v3.2",
+      "team": "delivery-engineering"
+    },
+    "description": "DeepSeek V3.2"
+  },
+  {
+    "profileArn": "arn:aws:bedrock:us-west-2:529105607725:application-inference-profile/ud9s1whhhm3z",
+    "profileName": "jackrose-zaiglm47flash-78fc1b",
+    "modelId": "zai.glm-4.7-flash",
+    "status": "ACTIVE",
+    "createdAt": "2026-04-29",
+    "tags": {
+      "bedrock-user": "jack.rose@cultureamp.com",
+      "created-by": "wilma",
+      "created-date": "2026-04-29",
+      "model-id": "zai.glm-4.7-flash",
+      "team": "delivery-engineering"
+    },
+    "description": "GLM 4.7 Flash"
+  },
+  {
+    "profileArn": "arn:aws:bedrock:us-west-2:529105607725:application-inference-profile/aqrq9rpdwurx",
+    "profileName": "jackrose-usantcldops47-a99cc5",
+    "modelId": "us.anthropic.claude-opus-4-7",
+    "status": "ACTIVE",
+    "createdAt": "2026-04-29",
+    "tags": {
+      "bedrock-user": "jack.rose@cultureamp.com",
+      "created-by": "wilma",
+      "created-date": "2026-04-29",
+      "model-id": "us.anthropic.claude-opus-4-7",
+      "team": "delivery-engineering"
+    },
+    "description": "Routes requests to Anthropic Claude Opus 4.7 in us-east-1 us-east-2 and us-west-2."
+  },
+  {
+    "profileArn": "arn:aws:bedrock:us-west-2:529105607725:application-inference-profile/ywpx5q1a7em4",
+    "profileName": "jackrose-minimaxminimaxm25-692d09",
+    "modelId": "minimax.minimax-m2.5",
+    "status": "ACTIVE",
+    "createdAt": "2026-04-29",
+    "tags": {
+      "bedrock-user": "jack.rose@cultureamp.com",
+      "created-by": "wilma",
+      "created-date": "2026-04-29",
+      "model-id": "minimax.minimax-m2.5",
+      "team": "delivery-engineering"
+    },
+    "description": "MiniMax M2.5"
+  },
+  {
+    "profileArn": "arn:aws:bedrock:us-west-2:529105607725:application-inference-profile/tmyhhk0zfy1k",
+    "profileName": "jackrose-usantcldsnt46-6b988d",
+    "modelId": "us.anthropic.claude-sonnet-4-6",
+    "status": "ACTIVE",
+    "createdAt": "2026-04-29",
+    "tags": {
+      "bedrock-user": "jack.rose@cultureamp.com",
+      "created-by": "wilma",
+      "created-date": "2026-04-29",
+      "model-id": "us.anthropic.claude-sonnet-4-6",
+      "team": "delivery-engineering"
+    },
+    "description": "Routes requests to Claude Sonnet 4.6 in us-east-1 us-east-2 us-west-2."
+  },
+  {
+    "profileArn": "arn:aws:bedrock:us-west-2:529105607725:application-inference-profile/e16u8s92yu0u",
+    "profileName": "jackrose-usantcldhku45v10-a0976d",
+    "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "status": "ACTIVE",
+    "createdAt": "2026-04-29",
+    "tags": {
+      "bedrock-user": "jack.rose@cultureamp.com",
+      "created-by": "wilma",
+      "created-date": "2026-04-29",
+      "model-id": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "team": "delivery-engineering"
+    },
+    "description": "Routes requests to Anthropic Claude Haiku 4.5 in us-east-1 us-east-2 and us-west-2."
+  },
+  {
+    "profileArn": "arn:aws:bedrock:us-west-2:529105607725:application-inference-profile/7ohr88uilrs7",
+    "profileName": "jackrose-moonshotaikimik25-efc21f",
+    "modelId": "moonshotai.kimi-k2.5",
+    "status": "ACTIVE",
+    "createdAt": "2026-04-29",
+    "tags": {
+      "bedrock-user": "jack.rose@cultureamp.com",
+      "created-by": "wilma",
+      "created-date": "2026-04-29",
+      "model-id": "moonshotai.kimi-k2.5",
+      "team": "delivery-engineering"
+    },
+    "description": "Kimi K2.5"
+  },
+  {
+    "profileArn": "arn:aws:bedrock:us-west-2:529105607725:application-inference-profile/h5rdy6ueyawz",
+    "profileName": "jackrose-qwenqwen3coder480ba35bv10-868b06",
+    "modelId": "qwen.qwen3-coder-480b-a35b-v1:0",
+    "status": "ACTIVE",
+    "createdAt": "2026-04-29",
+    "tags": {
+      "bedrock-user": "jack.rose@cultureamp.com",
+      "created-by": "wilma",
+      "created-date": "2026-04-29",
+      "model-id": "qwen.qwen3-coder-480b-a35b-v1:0",
+      "team": "delivery-engineering"
+    },
+    "description": "Qwen3 Coder 480B A35B Instruct"
+  }
+]
