@@ -1,7 +1,0 @@
-{
-  "name": "ca-bedrock-auth",
-  "version": "1.0.0",
-  "description": "Auto-refresh AWS credentials for bedrock using granted",
-  "main": "index.ts",
-  "type": "module"
-}
