@@ -3,4 +3,5 @@ node_modules
 /agent/sessions/
 /agent/mcp-cache.json
 /agent/mcp-oauth/
+/agent/trust.json
 *.log
