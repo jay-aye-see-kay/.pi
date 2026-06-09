@@ -1,28 +1,17 @@
 import type { ExtensionAPI, ProviderModelConfig, BashOperations } from "@mariozechner/pi-coding-agent";
 import { createLocalBashOperations } from "@mariozechner/pi-coding-agent";
-import { getModel } from "@mariozechner/pi-ai";
-import type { StreamFunction } from "@mariozechner/pi-ai";
+import { getModel, streamSimple as piAiStreamSimple } from "@mariozechner/pi-ai";
 import { execSync } from "child_process";
-import { readFileSync, existsSync, realpathSync } from "fs";
-import { join, dirname } from "path";
+import { readFileSync, existsSync } from "fs";
+import { join } from "path";
 import { homedir } from "os";
-import { pathToFileURL } from "url";
 
-// Locate pi-ai's bedrock-provider.js by resolving the `pi` binary path,
-// then load streamBedrock directly. This bypasses pi-ai's api-registry which
-// pi's registerProvider monkey-patches to route through our extension's
-// streamSimple — calling stream()/streamSimple() from pi-ai would recurse.
-async function loadStreamBedrock(): Promise<StreamFunction<"bedrock-converse-stream", any>> {
-  const piBin = execSync("which pi", { encoding: "utf-8" }).trim();
-  const realBin = realpathSync(piBin);
-  const piPkgRoot = join(dirname(realBin), "..");
-  const bedrockProviderPath = join(
-    piPkgRoot,
-    "node_modules/@mariozechner/pi-ai/dist/bedrock-provider.js",
-  );
-  const mod: any = await import(pathToFileURL(bedrockProviderPath).href);
-  return mod.bedrockProviderModule.streamBedrock;
-}
+// Custom api name used for our model registrations. Distinct from pi-ai's
+// built-in "bedrock-converse-stream" so that registerProvider doesn't
+// overwrite the built-in entry in pi-ai's api-registry. Our streamSimple
+// handler dispatches to the built-in via piAiStreamSimple with a synthetic
+// model carrying the real api name.
+const CA_BEDROCK_API = "ca-bedrock-converse" as const;
 
 const BEDROCK_AWS_PROFILE = "cultureamp-sandbox/BedrockDevTools";
 const BEDROCK_AWS_REGION = "us-west-2";
@@ -206,8 +195,6 @@ export default async function (pi: ExtensionAPI) {
     return;
   }
 
-  const streamBedrock = await loadStreamBedrock();
-
   // ARN map: modelId → application-inference-profile ARN
   const arnMap = new Map<string, string>();
   for (const profile of profiles) {
@@ -227,25 +214,34 @@ export default async function (pi: ExtensionAPI) {
     };
   });
 
-  // Custom streamSimple wraps pi-ai's dispatch and:
-  //   1. Injects `profile` + `region` into BedrockOptions so the AWS SDK
-  //      uses the Bedrock profile *only* for this call, leaving the
-  //      shell's AWS_* env vars untouched.
-  //   2. Swaps modelId → application-inference-profile ARN.
+  // Register under a custom api name so pi-ai's built-in
+  // "bedrock-converse-stream" registry entry stays intact. Our streamSimple
+  // then dispatches to the built-in via a synthesized model carrying the
+  // real api name — no recursion, no filesystem imports.
+  //
+  // streamSimple also:
+  //   1. Swaps modelId → application-inference-profile ARN.
+  //   2. Injects profile + region into BedrockOptions so the AWS SDK uses
+  //      the Bedrock profile for this call only.
   pi.registerProvider("amazon-bedrock", {
     baseUrl: `https://bedrock-runtime.${BEDROCK_AWS_REGION}.amazonaws.com`,
     apiKey: "aws-sdk",
-    api: "bedrock-converse-stream",
+    api: CA_BEDROCK_API,
     models,
     streamSimple: (model, context, options) => {
       const arn = arnMap.get(model.id);
-      const effectiveModel = arn ? { ...model, id: arn } : model;
+      const { compat: _compat, ...rest } = model;
+      const realModel = {
+        ...rest,
+        id: arn ?? model.id,
+        api: "bedrock-converse-stream" as const,
+      };
       const effectiveOptions = {
         ...options,
         profile: BEDROCK_AWS_PROFILE,
         region: BEDROCK_AWS_REGION,
       };
-      return streamBedrock(effectiveModel as any, context, effectiveOptions as any);
+      return piAiStreamSimple(realModel, context, effectiveOptions);
     },
   });
 
