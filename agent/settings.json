@@ -14,5 +14,8 @@
   "quietStartup": true,
   "env": {
     "AWS_BEDROCK_FORCE_CACHE": "1"
+  },
+  "warnings": {
+    "anthropicExtraUsage": false
   }
 }
