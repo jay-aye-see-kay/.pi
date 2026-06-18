@@ -5,3 +5,5 @@ node_modules
 /agent/mcp-oauth/
 /agent/trust.json
 *.log
+/agent/settings.json
+/agent/mcp.json
