@@ -1,9 +1,13 @@
 {
-  "lastChangelogVersion": "0.79.3",
+  "lastChangelogVersion": "0.79.6",
+  "theme": "light",
   "defaultProvider": "anthropic",
   "defaultModel": "claude-opus-4-8",
   "defaultThinkingLevel": "medium",
-  "theme": "light",
+  "enabledModels": [
+    "anthropic/claude-opus-4-8",
+    "anthropic/claude-sonnet-4-6"
+  ],
   "skills": [
     "~/.claude/skills"
   ],

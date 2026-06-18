@@ -18,16 +18,27 @@
   "tui.select.pageUp":   ["pageUp"],
   "tui.select.pageDown": ["pageDown"],
   "tui.select.confirm":  ["enter"],
-  "tui.select.cancel":   ["escape"],
+  "tui.select.cancel":   ["escape", "ctrl+c"],
 
   "// --- INTERRUPT/EXIT: ctrl+c stops agent, ctrl+d quits when empty ---": "",
   "app.interrupt": ["escape", "ctrl+c"],
-  "app.clear": [],
+  "app.clear": ["ctrl+u"],
   "app.exit": ["ctrl+d"],
 
   "// --- DISPLACED: move ctrl+p away from model cycling ---": "",
-  "app.model.cycleForward":  ["alt+p"],
-  "app.model.cycleBackward": ["shift+alt+p"],
+  "app.model.cycleForward":  ["ctrl+y"],
+  "app.model.cycleBackward": ["shift+ctrl+y"],
+
+  "// --- MODEL SELECTOR: freed ctrl+l (use ctrl+y or /models instead) ---": "",
+  "app.model.select": [],
+
+  "// --- SESSION: ctrl+l new, ctrl+shift+l resume ---": "",
+  "app.session.new":    ["ctrl+l"],
+  "app.session.resume": ["shift+ctrl+l"],
+
+  "// --- THINKING: ctrl+t cycle level, ctrl+shift+t toggle blocks ---": "",
+  "app.thinking.cycle":  ["ctrl+t"],
+  "app.thinking.toggle": ["ctrl+shift+t"],
 
   "// --- DISPLACED: move ctrl+p / ctrl+n away from session picker toggles ---": "",
   "app.session.togglePath":         ["alt+p"],
