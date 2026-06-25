@@ -45,6 +45,9 @@
   "app.session.toggleNamedFilter":  ["alt+n"],
   "app.session.toggleSort":         ["ctrl+s"],
 
+  "// --- INPUT: free ctrl+j for snippets extension (keep shift+enter for newline) ---": "",
+  "tui.input.newLine": ["shift+enter"],
+
   "// --- TREE NAVIGATION ---": "",
   "app.tree.foldOrUp":   ["ctrl+left", "alt+left", "ctrl+h"],
   "app.tree.unfoldOrDown": ["ctrl+right", "alt+right", "ctrl+l"],
