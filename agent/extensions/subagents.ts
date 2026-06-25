@@ -1,4 +1,4 @@
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent, AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -43,7 +43,18 @@ import { join } from "node:path";
  * is retrieval-only: ask a finished subagent for information it already holds
  * (a detail from material it loaded, or the reasoning behind its result) rather
  * than to do new work. Prompt-cache hits are a bonus.
+ *
+ * Layout of this file:
+ *   - Config       — read & validate `subagentModels` from settings.json
+ *   - Telemetry    — the live/final stats shared with the renderers
+ *   - Running      — spawn the child `pi`, parse its JSON event stream
+ *   - Rendering    — turn stats into TUI widgets (all theme logic lives here)
+ *   - Extension    — wire it together and register the tool
  */
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
 
 type SubagentModels = { small: string; standard: string; reasoning: string };
 const TIERS = ["small", "standard", "reasoning"] as const;
@@ -87,13 +98,21 @@ function readSubagentModels(): ModelsConfig {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Telemetry
+// ---------------------------------------------------------------------------
+
 /** One subagent tool call: name + a one-line arg (input) summary. */
 interface ToolCall {
   tool: string;
   summary: string;
 }
 
-/** Live + final telemetry shared between execute() and the inline renderers via result.details. */
+/**
+ * Live + final telemetry, attached to every result/update as `details` so the
+ * renderers can draw it. `running` is true for in-flight snapshots (onUpdate)
+ * and false for the terminal result.
+ */
 interface SubStats {
   sessionId: string;
   resuming: boolean;
@@ -106,8 +125,184 @@ interface SubStats {
   exitCode?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Running a subagent
+// ---------------------------------------------------------------------------
+
+const SESSION_ID_RE = /^sub-[a-z0-9-]+$/i;
+
+/** Session files are named `<timestamp>_<sessionId>.jsonl`. */
+function sessionExists(sessionDir: string, id: string): boolean {
+  try {
+    return readdirSync(sessionDir).some((f) => f.endsWith(`_${id}.jsonl`));
+  } catch {
+    return false;
+  }
+}
+
+function buildPrompt(goal: string, context: string): string {
+  return [
+    "## Goal",
+    goal.trim(),
+    "## Context",
+    context.trim(),
+    "## Environment and Sandbox",
+    "You are a resumable subagent running in a sandbox. " +
+      "The sandbox has been set up to keep out of your way, but nothing is perfect. " +
+      "Stop and describe the problem with your environment if you are blocked, so that " +
+      "it can be passed back to the user to be fixed.",
+  ].join("\n\n");
+}
+
+interface RunOptions {
+  sessionId: string;
+  resuming: boolean;
+  model: string;
+  prompt: string;
+  sessionDir: string;
+  sandboxExt: string;
+  cwd: string;
+  signal?: AbortSignal;
+}
+
+interface SubagentOutcome {
+  stats: SubStats; // final snapshot (running: false)
+  finalText: string;
+  exitCode: number;
+  aborted: boolean;
+  spawnError?: Error;
+  stderr: string;
+}
+
+/**
+ * Spawn the child `pi`, accumulate telemetry from its JSON event stream, and
+ * resolve once it exits. `onStats` receives a live snapshot whenever the stats
+ * change; it is the only coupling to the UI and never sees the child directly.
+ */
+async function runSubagent(
+  opts: RunOptions,
+  onStats: (stats: SubStats) => void,
+): Promise<SubagentOutcome> {
+  const child = spawn(
+    "pi",
+    [
+      "--mode", "json",
+      "--no-extensions",
+      "-e", opts.sandboxExt,
+      "--no-skills",
+      "--session-dir", opts.sessionDir,
+      "--session-id", opts.sessionId,
+      "--model", opts.model,
+      "-n", `subagent/${opts.sessionId}`,
+      "-p", opts.prompt,
+    ],
+    {
+      cwd: opts.cwd,
+      env: { ...process.env, PI_SUBAGENT: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+
+  const onAbort = () => child.kill("SIGTERM");
+  opts.signal?.addEventListener("abort", onAbort, { once: true });
+
+  let finalText = "";
+  let totalCost = 0;
+  let turns = 0;
+  const calls: ToolCall[] = [];
+  let stderr = "";
+  let buf = "";
+
+  const snapshot = (running: boolean): SubStats => ({
+    sessionId: opts.sessionId,
+    resuming: opts.resuming,
+    cost: totalCost,
+    turns,
+    calls: calls.map((c) => ({ ...c })),
+    running,
+  });
+  const emit = () => onStats(snapshot(true));
+  emit();
+
+  // The child's `--mode json` stream is AgentSession.subscribe's event feed.
+  const handleEvent = (ev: AgentSessionEvent) => {
+    switch (ev.type) {
+      case "tool_execution_start":
+        calls.push({ tool: ev.toolName, summary: summarizeCall(ev.args) });
+        emit();
+        break;
+      case "message_end":
+        if (ev.message.role === "assistant") totalCost += ev.message.usage.cost.total;
+        break;
+      case "turn_end":
+        turns += 1;
+        emit();
+        break;
+      case "agent_end": {
+        for (let i = ev.messages.length - 1; i >= 0; i--) {
+          const msg = ev.messages[i];
+          if (msg.role === "assistant") {
+            finalText = msg.content
+              .filter((b) => b.type === "text")
+              .map((b) => b.text)
+              .join("");
+            break;
+          }
+        }
+        break;
+      }
+    }
+  };
+
+  child.stdout.on("data", (chunk: Buffer) => {
+    buf += chunk.toString();
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      try {
+        handleEvent(JSON.parse(line));
+      } catch {
+        // ignore non-JSON lines
+      }
+    }
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+
+  let spawnError: Error | undefined;
+  const exitCode: number = await new Promise((resolve) => {
+    child.on("error", (err) => {
+      spawnError = err;
+      resolve(-1);
+    });
+    child.on("close", (code) => resolve(code ?? 0));
+  });
+
+  opts.signal?.removeEventListener("abort", onAbort);
+
+  return {
+    stats: snapshot(false),
+    finalText,
+    exitCode,
+    aborted: Boolean(opts.signal?.aborted),
+    spawnError,
+    stderr,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Rendering (all theme/UI logic lives below this line)
+// ---------------------------------------------------------------------------
+
+const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + "\u2026" : s);
+
+const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
 /** Best-effort one-line summary of a tool call's args (command / path / query / etc.). */
-const summarizeCall = (args: unknown): string => {
+function summarizeCall(args: unknown): string {
   if (!args || typeof args !== "object") return "";
   const a = args as Record<string, unknown>;
   const pick =
@@ -118,32 +313,85 @@ const summarizeCall = (args: unknown): string => {
   } catch {
     return "";
   }
-};
+}
 
-const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + "\u2026" : s);
-
-const plainTelemetry = (d: SubStats): string => {
+/** Plain-text telemetry for the model-facing onUpdate content (no theme). */
+function plainTelemetry(d: SubStats): string {
   const tag = d.resuming ? "\u21bb " : "";
-  return `${tag}${d.sessionId} \u00b7 ${d.turns} turn${d.turns === 1 ? "" : "s"} \u00b7 ${d.calls.length} tool call${d.calls.length === 1 ? "" : "s"} \u00b7 $${d.cost.toFixed(4)}`;
-};
+  return `${tag}${d.sessionId} \u00b7 ${plural(d.turns, "turn")} \u00b7 ${plural(d.calls.length, "tool call")} \u00b7 $${d.cost.toFixed(4)}`;
+}
 
-const themedHeader = (theme: Theme, d: SubStats): string => {
+/** Themed one-line header: 🤖 session · turns · cost. */
+function themedHeader(theme: Theme, d: SubStats): string {
   const dot = ` ${theme.fg("dim", "\u00b7")} `;
   const tag = d.resuming ? "\u21bb " : "";
   return [
     `\u{1f916} ${tag}${theme.fg("accent", d.sessionId)}`,
-    `${d.turns} turn${d.turns === 1 ? "" : "s"}`,
+    plural(d.turns, "turn"),
     theme.fg("muted", `$${d.cost.toFixed(4)}`),
   ].join(dot);
-};
+}
 
 /** One indented line per tool call: tool name + arg (input) summary. */
-const callLines = (theme: Theme, calls: ToolCall[]): string[] =>
-  calls.map((c) => {
+function callLines(theme: Theme, calls: ToolCall[]): string[] {
+  return calls.map((c) => {
     const name = theme.fg("accent", c.tool);
     const summary = c.summary ? " " + theme.fg("toolOutput", clip(c.summary, 100)) : "";
     return `  ${theme.fg("dim", "\u203a")} ${name}${summary}`;
   });
+}
+
+function renderCall(args: { resume?: string; model?: Tier; goal?: string }, theme: Theme): Text {
+  let head = theme.fg("toolTitle", theme.bold("subagent"));
+  const resume = (args.resume ?? "").trim();
+  if (resume) head += " " + theme.fg("accent", `\u21bb ${resume}`);
+  const tier = args.model ?? "standard";
+  if (tier !== "standard") head += " " + theme.fg("muted", `[${tier}]`);
+  const goal = (args.goal ?? "").trim().split("\n")[0];
+  if (goal) head += " " + theme.fg("dim", clip(goal, 160));
+  return new Text(head, 0, 0);
+}
+
+function renderResult(
+  d: SubStats | undefined,
+  isError: boolean,
+  expanded: boolean,
+  isPartial: boolean,
+  theme: Theme,
+): Text {
+  const calls = d ? callLines(theme, d.calls) : [];
+
+  if (isPartial) {
+    const head = d ? themedHeader(theme, d) : theme.fg("dim", "starting\u2026");
+    return new Text([head, ...calls].join("\n"), 0, 0);
+  }
+
+  if (isError || d?.error) {
+    const head = theme.fg("error", `\u2716 ${d?.sessionId ?? "subagent"} \u00b7 ${d?.error ?? "failed"}`);
+    return new Text([head, ...calls].join("\n"), 0, 0);
+  }
+
+  const out = [d ? themedHeader(theme, d) : "", ...calls];
+  const body = (d?.text ?? "").trim();
+  if (body) {
+    const lines = body.split("\n");
+    const shown = expanded ? lines : lines.slice(0, 3);
+    out.push("", ...shown.map((l) => theme.fg("toolOutput", l)));
+    if (!expanded && lines.length > shown.length) {
+      out.push(theme.fg("dim", `\u2026 ${lines.length - shown.length} more lines`));
+    }
+  }
+  return new Text(out.join("\n"), 0, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Extension
+// ---------------------------------------------------------------------------
+
+/** Build a model-facing error result carrying the given telemetry details. */
+function failure(text: string, details: Record<string, unknown>): AgentToolResult<unknown> & { isError: true } {
+  return { content: [{ type: "text", text }], details, isError: true };
+}
 
 export default function (pi: ExtensionAPI) {
   // Never expose the subagent tool inside a subagent.
@@ -163,16 +411,6 @@ export default function (pi: ExtensionAPI) {
   const sessionDir = join(getAgentDir(), "subagent-sessions");
   const sandboxExt = join(getAgentDir(), "npm", "node_modules", "pi-sandbox", "index.ts");
   if (!existsSync(sandboxExt)) return; // require pi-sandbox; never run subagents unsandboxed
-
-  const SESSION_ID_RE = /^sub-[a-z0-9-]+$/i;
-  // Session files are named `<timestamp>_<sessionId>.jsonl`.
-  const sessionExists = (id: string): boolean => {
-    try {
-      return readdirSync(sessionDir).some((f) => f.endsWith(`_${id}.jsonl`));
-    } catch {
-      return false;
-    }
-  };
 
   pi.registerTool({
     name: "subagent",
@@ -210,178 +448,63 @@ Key rule: resume to get information not to do work.`,
         }),
       ),
     }),
+
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      // Resolve (and validate) the session: resume an existing one or mint a new id.
       const resumeId = params.resume?.trim();
       if (resumeId) {
         if (!SESSION_ID_RE.test(resumeId)) {
-          return {
-            content: [{ type: "text", text: `Invalid subagent id '${resumeId}'. Expected a 'sub-...' id from a prior result footer.` }],
-            isError: true,
-            details: { resume: resumeId },
-          };
+          return failure(
+            `Invalid subagent id '${resumeId}'. Expected a 'sub-...' id from a prior result footer.`,
+            { resume: resumeId },
+          );
         }
-        if (!sessionExists(resumeId)) {
-          return {
-            content: [{ type: "text", text: `No subagent session '${resumeId}' found to resume. Start a fresh subagent instead (omit 'resume').` }],
-            isError: true,
-            details: { resume: resumeId },
-          };
+        if (!sessionExists(sessionDir, resumeId)) {
+          return failure(
+            `No subagent session '${resumeId}' found to resume. Start a fresh subagent instead (omit 'resume').`,
+            { resume: resumeId },
+          );
         }
       }
       const sessionId = resumeId ?? `sub-${randomUUID().slice(0, 8)}`;
-      const resuming = Boolean(resumeId);
-
       const tier: Tier = params.model ?? "standard";
-      const model = models[tier];
 
-      const promptParts = [
-        "## Goal",
-        params.goal.trim(),
-        "## Context",
-        params.context.trim(),
-        "## Envronment and Sandbox",
-        "You are a resumable subagent running in a sandbox. " +
-        "The sandbox has been setup to keep out of your way, but nothing is perfect. " +
-        "Stop and describe the issue with your envronment if you are blocked so that " +
-        "information this can be passed back to the user to be fixed."
-      ];
-
-      const child = spawn(
-        "pi",
-        [
-          "--mode", "json",
-          "--no-extensions",
-          "-e", sandboxExt,
-          "--no-skills",
-          "--session-dir", sessionDir,
-          "--session-id", sessionId,
-          "--model", model,
-          "-n", `subagent/${sessionId}`,
-          "-p", promptParts.join("\n\n"),
-        ],
+      const outcome = await runSubagent(
         {
+          sessionId,
+          resuming: Boolean(resumeId),
+          model: models[tier],
+          prompt: buildPrompt(params.goal, params.context),
+          sessionDir,
+          sandboxExt,
           cwd: ctx.cwd,
-          env: { ...process.env, PI_SUBAGENT: "1" },
-          stdio: ["ignore", "pipe", "pipe"],
+          signal,
         },
+        // Live telemetry → inline tool block (drawn by renderResult with isPartial).
+        (stats) => onUpdate?.({ content: [{ type: "text", text: plainTelemetry(stats) }], details: stats }),
       );
 
-      const onAbort = () => child.kill("SIGTERM");
-      signal?.addEventListener("abort", onAbort, { once: true });
+      const { stats, finalText, exitCode } = outcome;
 
-      let finalText = "";
-      let totalCost = 0;
-      let turns = 0;
-      const calls: ToolCall[] = [];
-      let stderr = "";
-      let buf = "";
-
-      const snapshot = (extra: Partial<SubStats> = {}): SubStats => ({
-        sessionId,
-        resuming,
-        cost: totalCost,
-        turns,
-        calls: calls.map((c) => ({ ...c })),
-        running: true,
-        ...extra,
-      });
-      // Push live telemetry into the inline tool block (rendered by renderResult with isPartial).
-      const pushUpdate = () => {
-        const d = snapshot();
-        onUpdate?.({ content: [{ type: "text", text: plainTelemetry(d) }], details: d });
-      };
-      pushUpdate();
-
-      const handleEvent = (ev: any) => {
-        switch (ev?.type) {
-          case "tool_execution_start": {
-            calls.push({ tool: ev.toolName, summary: summarizeCall(ev.args) });
-            pushUpdate();
-            break;
-          }
-          case "message_end":
-            if (ev.message?.role === "assistant") {
-              const cost = ev.message?.usage?.cost?.total;
-              if (typeof cost === "number") totalCost += cost;
-            }
-            break;
-          case "turn_end":
-            turns += 1;
-            pushUpdate();
-            break;
-          case "agent_end": {
-            const msgs: any[] = ev.messages ?? [];
-            for (let i = msgs.length - 1; i >= 0; i--) {
-              if (msgs[i]?.role === "assistant") {
-                finalText = (msgs[i].content ?? [])
-                  .filter((b: any) => b?.type === "text")
-                  .map((b: any) => b.text)
-                  .join("");
-                break;
-              }
-            }
-            break;
-          }
-        }
-      };
-
-      child.stdout.on("data", (chunk: Buffer) => {
-        buf += chunk.toString();
-        let nl: number;
-        while ((nl = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line) continue;
-          try {
-            handleEvent(JSON.parse(line));
-          } catch {
-            // ignore non-JSON lines
-          }
-        }
-      });
-      child.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString();
-      });
-
-      let spawnError: Error | undefined;
-      const exitCode: number = await new Promise((resolve) => {
-        child.on("error", (err) => {
-          spawnError = err;
-          resolve(-1);
-        });
-        child.on("close", (code) => resolve(code ?? 0));
-      });
-
-      signal?.removeEventListener("abort", onAbort);
-
-      const stats = snapshot({ running: false });
-
-      if (signal?.aborted) {
-        return {
-          content: [{ type: "text", text: `Subagent ${sessionId} aborted.` }],
-          isError: true,
-          details: { ...stats, error: "aborted" },
-        };
+      if (outcome.aborted) {
+        return failure(`Subagent ${sessionId} aborted.`, { ...stats, error: "aborted" });
       }
-      if (spawnError) {
-        return {
-          content: [{ type: "text", text: `Failed to launch subagent: ${spawnError.message}` }],
-          isError: true,
-          details: { ...stats, error: spawnError.message },
-        };
+      if (outcome.spawnError) {
+        return failure(`Failed to launch subagent: ${outcome.spawnError.message}`, {
+          ...stats,
+          error: outcome.spawnError.message,
+        });
       }
       if (exitCode !== 0 && !finalText) {
-        return {
-          content: [
-            { type: "text", text: `Subagent ${sessionId} failed (exit ${exitCode}).\n${stderr.slice(-1500)}` },
-          ],
-          isError: true,
-          details: { ...stats, error: `exit ${exitCode}`, exitCode },
-        };
+        return failure(`Subagent ${sessionId} failed (exit ${exitCode}).\n${outcome.stderr.slice(-1500)}`, {
+          ...stats,
+          error: `exit ${exitCode}`,
+          exitCode,
+        });
       }
 
-      const footer = `[subagent ${sessionId} \u00b7 ${turns} turns \u00b7 $${totalCost.toFixed(4)}]`;
       const body = finalText || "(subagent produced no final text)";
+      const footer = `[subagent ${sessionId} \u00b7 ${plural(stats.turns, "turn")} \u00b7 $${stats.cost.toFixed(4)}]`;
       return {
         content: [{ type: "text", text: `${body}\n\n${footer}` }],
         details: { ...stats, text: body },
@@ -389,38 +512,17 @@ Key rule: resume to get information not to do work.`,
     },
 
     renderCall(args, theme) {
-      let head = theme.fg("toolTitle", theme.bold("subagent"));
-      const resume = (args.resume ?? "").trim();
-      if (resume) head += " " + theme.fg("accent", `\u21bb ${resume}`);
-      const tier = args.model ?? "standard";
-      if (tier !== "standard") head += " " + theme.fg("muted", `[${tier}]`);
-      const goal = (args.goal ?? "").trim().split("\n")[0];
-      if (goal) head += " " + theme.fg("dim", clip(goal, 160));
-      return new Text(head, 0, 0);
+      return renderCall(args, theme);
     },
 
     renderResult(result, { expanded, isPartial }, theme, context) {
-      const d = result.details as SubStats | undefined;
-      const calls = d ? callLines(theme, d.calls) : [];
-      if (isPartial) {
-        const head = d ? themedHeader(theme, d) : theme.fg("dim", "starting\u2026");
-        return new Text([head, ...calls].join("\n"), 0, 0);
-      }
-      if (context.isError || d?.error) {
-        const head = theme.fg("error", `\u2716 ${d?.sessionId ?? "subagent"} \u00b7 ${d?.error ?? "failed"}`);
-        return new Text([head, ...calls].join("\n"), 0, 0);
-      }
-      const out = [d ? themedHeader(theme, d) : "", ...calls];
-      const body = (d?.text ?? "").trim();
-      if (body) {
-        const lines = body.split("\n");
-        const shown = expanded ? lines : lines.slice(0, 3);
-        out.push("", ...shown.map((l) => theme.fg("toolOutput", l)));
-        if (!expanded && lines.length > shown.length) {
-          out.push(theme.fg("dim", `\u2026 ${lines.length - shown.length} more lines`));
-        }
-      }
-      return new Text(out.join("\n"), 0, 0);
+      return renderResult(
+        result.details as SubStats | undefined,
+        Boolean(context.isError),
+        expanded,
+        isPartial,
+        theme,
+      );
     },
   });
 }
