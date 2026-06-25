@@ -30,9 +30,11 @@ import { join } from "node:path";
  * pre-allowed in sandbox.json is aborted rather than prompted.
  *
  * Resume: every result footer carries the subagent's session id (e.g.
- * `sub-1a2b3c4d`). Passing that id back as the `resume` parameter continues
- * that subagent with its full prior context (idempotent `--session-id`), so a
- * follow-up can build on earlier work and benefit from prompt-cache hits.
+ * `sub-1a2b3c4d`). Passing that id back as the `resume` parameter re-opens
+ * that subagent with its full prior context (idempotent `--session-id`). Resume
+ * is retrieval-only: ask a finished subagent for information it already holds
+ * (a detail from material it loaded, or the reasoning behind its result) rather
+ * than to do new work. Prompt-cache hits are a bonus.
  */
 
 function readSubagentModel(): string | undefined {
@@ -69,26 +71,28 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
-    description:
-      "Delegate a self-contained task to an isolated subagent that runs in its own context window. " +
-      "The subagent has its own read/bash/edit/write tools and returns ONLY its final answer; its " +
-      "intermediate work never enters this conversation. Use it for context-heavy subtasks (searching, " +
-      "exploring, summarizing, multi-step grunt work) whose intermediate output you do not need to see. " +
-      "The subagent CANNOT see this conversation, so the task must be complete and self-contained, and " +
-      "should ask the subagent to end with a clear, standalone final report.",
+    description: `Delegate a self-contained task to an isolated subagent (its own context window, its own read/bash/edit/write tools).
+
+Reach for one when work is big or noisy to do but small to report — keep the mess out of your context:
+- search & locate (where is X, where's this used)
+- explore & explain (how does this flow work)
+- summarize a big artifact (long log, huge file, diff, test output)
+- web/doc lookup (a signature, a breaking change, a fact + its source)
+- scoped grunt work (run tests and triage, apply a rename, build a minimal repro)
+- a fresh second opinion (review a diff, argue failure cases)
+Run several in parallel for independent subtasks, then merge.
+
+Key rule: the subagent can't see this conversation — give it one clear task with all the context it needs, and have it finish with a standalone final report.`,
     parameters: Type.Object({
-      task: Type.String({
-        description:
-          "Complete, self-contained instructions for the subagent. Include all context it needs " +
-          "(paths, constraints, what to return). It cannot see this conversation. Tell it to finish " +
-          "with a clear final report, since only its final message is returned to you.",
+      prompt: Type.String({
+        description: `One clear task with all context the subagent needs to complete it standalone (paths, constraints, goal).`,
       }),
       resume: Type.Optional(
         Type.String({
-          description:
-            "Optional. A subagent session id from a previous result footer (e.g. 'sub-1a2b3c4d') to " +
-            "CONTINUE that subagent with its full prior context. The `task` becomes the follow-up " +
-            "message. Omit to start a fresh subagent.",
+          description: `Optional. Resume a finished subagent by its id (e.g. 'sub-1a2b3c4d', from a prior result footer) to ask it a follow-up; \`prompt\` becomes the follow-up message.
+
+Good for: pulling more information out of a subagent that already holds it — a detail from a page/file/search it loaded, or the reasoning behind a result it gave you.
+Key rule: resume to get information not to do work.`,
         }),
       ),
     }),
@@ -125,7 +129,7 @@ export default function (pi: ExtensionAPI) {
           "--session-id", sessionId,
           "--model", model,
           "-n", `subagent/${sessionId}`,
-          "-p", params.task,
+          "-p", params.prompt,
         ],
         {
           cwd: ctx.cwd,
