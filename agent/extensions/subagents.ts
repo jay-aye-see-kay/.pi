@@ -1,5 +1,6 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -46,6 +47,64 @@ function readSubagentModel(): string | undefined {
     return undefined;
   }
 }
+
+/** One subagent tool call: name + a one-line arg (input) summary. */
+interface ToolCall {
+  tool: string;
+  summary: string;
+}
+
+/** Live + final telemetry shared between execute() and the inline renderers via result.details. */
+interface SubStats {
+  sessionId: string;
+  resuming: boolean;
+  cost: number;
+  turns: number;
+  calls: ToolCall[];
+  running: boolean;
+  text?: string;
+  error?: string;
+  exitCode?: number;
+}
+
+/** Best-effort one-line summary of a tool call's args (command / path / query / etc.). */
+const summarizeCall = (args: unknown): string => {
+  if (!args || typeof args !== "object") return "";
+  const a = args as Record<string, unknown>;
+  const pick =
+    a.command ?? a.path ?? a.file_path ?? a.filePath ?? a.query ?? a.pattern ?? a.url ?? a.prompt;
+  if (typeof pick === "string") return pick.replace(/\s+/g, " ").trim();
+  try {
+    return JSON.stringify(a);
+  } catch {
+    return "";
+  }
+};
+
+const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + "\u2026" : s);
+
+const plainTelemetry = (d: SubStats): string => {
+  const tag = d.resuming ? "\u21bb " : "";
+  return `${tag}${d.sessionId} \u00b7 ${d.turns} turn${d.turns === 1 ? "" : "s"} \u00b7 ${d.calls.length} tool call${d.calls.length === 1 ? "" : "s"} \u00b7 $${d.cost.toFixed(4)}`;
+};
+
+const themedHeader = (theme: Theme, d: SubStats): string => {
+  const dot = ` ${theme.fg("dim", "\u00b7")} `;
+  const tag = d.resuming ? "\u21bb " : "";
+  return [
+    `\u{1f916} ${tag}${theme.fg("accent", d.sessionId)}`,
+    `${d.turns} turn${d.turns === 1 ? "" : "s"}`,
+    theme.fg("muted", `$${d.cost.toFixed(4)}`),
+  ].join(dot);
+};
+
+/** One indented line per tool call: tool name + arg (input) summary. */
+const callLines = (theme: Theme, calls: ToolCall[]): string[] =>
+  calls.map((c) => {
+    const name = theme.fg("accent", c.tool);
+    const summary = c.summary ? " " + theme.fg("toolOutput", clip(c.summary, 100)) : "";
+    return `  ${theme.fg("dim", "\u203a")} ${name}${summary}`;
+  });
 
 export default function (pi: ExtensionAPI) {
   // Never expose the subagent tool inside a subagent.
@@ -96,7 +155,7 @@ Key rule: resume to get information not to do work.`,
         }),
       ),
     }),
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const resumeId = params.resume?.trim();
       if (resumeId) {
         if (!SESSION_ID_RE.test(resumeId)) {
@@ -116,7 +175,6 @@ Key rule: resume to get information not to do work.`,
       }
       const sessionId = resumeId ?? `sub-${randomUUID().slice(0, 8)}`;
       const resuming = Boolean(resumeId);
-      const widgetKey = `subagent:${sessionId}`;
 
       const child = spawn(
         "pi",
@@ -144,28 +202,33 @@ Key rule: resume to get information not to do work.`,
       let finalText = "";
       let totalCost = 0;
       let turns = 0;
-      const toolCounts: Record<string, number> = {};
+      const calls: ToolCall[] = [];
       let stderr = "";
       let buf = "";
 
-      const renderWidget = () => {
-        const tools =
-          Object.entries(toolCounts)
-            .map(([name, count]) => `${name}\u00d7${count}`)
-            .join(" ") || "no tools yet";
-        const tag = resuming ? "\u21bb " : "";
-        ctx.ui.setWidget(widgetKey, [
-          `\u{1f916} ${tag}${sessionId} \u00b7 ${turns} turn${turns === 1 ? "" : "s"} \u00b7 ${tools} \u00b7 $${totalCost.toFixed(4)}`,
-        ]);
+      const snapshot = (extra: Partial<SubStats> = {}): SubStats => ({
+        sessionId,
+        resuming,
+        cost: totalCost,
+        turns,
+        calls: calls.map((c) => ({ ...c })),
+        running: true,
+        ...extra,
+      });
+      // Push live telemetry into the inline tool block (rendered by renderResult with isPartial).
+      const pushUpdate = () => {
+        const d = snapshot();
+        onUpdate?.({ content: [{ type: "text", text: plainTelemetry(d) }], details: d });
       };
-      renderWidget();
+      pushUpdate();
 
       const handleEvent = (ev: any) => {
         switch (ev?.type) {
-          case "tool_execution_end":
-            toolCounts[ev.toolName] = (toolCounts[ev.toolName] ?? 0) + 1;
-            renderWidget();
+          case "tool_execution_start": {
+            calls.push({ tool: ev.toolName, summary: summarizeCall(ev.args) });
+            pushUpdate();
             break;
+          }
           case "message_end":
             if (ev.message?.role === "assistant") {
               const cost = ev.message?.usage?.cost?.total;
@@ -174,7 +237,7 @@ Key rule: resume to get information not to do work.`,
             break;
           case "turn_end":
             turns += 1;
-            renderWidget();
+            pushUpdate();
             break;
           case "agent_end": {
             const msgs: any[] = ev.messages ?? [];
@@ -220,22 +283,21 @@ Key rule: resume to get information not to do work.`,
       });
 
       signal?.removeEventListener("abort", onAbort);
-      ctx.ui.setWidget(widgetKey, []); // clear telemetry widget
 
-      const stats = { sessionId, cost: totalCost, turns, tools: toolCounts };
+      const stats = snapshot({ running: false });
 
       if (signal?.aborted) {
         return {
           content: [{ type: "text", text: `Subagent ${sessionId} aborted.` }],
           isError: true,
-          details: stats,
+          details: { ...stats, error: "aborted" },
         };
       }
       if (spawnError) {
         return {
           content: [{ type: "text", text: `Failed to launch subagent: ${spawnError.message}` }],
           isError: true,
-          details: stats,
+          details: { ...stats, error: spawnError.message },
         };
       }
       if (exitCode !== 0 && !finalText) {
@@ -244,7 +306,7 @@ Key rule: resume to get information not to do work.`,
             { type: "text", text: `Subagent ${sessionId} failed (exit ${exitCode}).\n${stderr.slice(-1500)}` },
           ],
           isError: true,
-          details: { ...stats, exitCode },
+          details: { ...stats, error: `exit ${exitCode}`, exitCode },
         };
       }
 
@@ -252,8 +314,44 @@ Key rule: resume to get information not to do work.`,
       const body = finalText || "(subagent produced no final text)";
       return {
         content: [{ type: "text", text: `${body}\n\n${footer}` }],
-        details: stats,
+        details: { ...stats, text: body },
       };
+    },
+
+    renderCall(args, theme) {
+      let head = theme.fg("toolTitle", theme.bold("subagent"));
+      const resume = (args.resume ?? "").trim();
+      if (resume) head += " " + theme.fg("accent", `\u21bb ${resume}`);
+      const firstLine = (args.prompt ?? "").trim().split("\n")[0];
+      if (firstLine) {
+        const clip = firstLine.length > 72 ? firstLine.slice(0, 71) + "\u2026" : firstLine;
+        head += " " + theme.fg("dim", clip);
+      }
+      return new Text(head, 0, 0);
+    },
+
+    renderResult(result, { expanded, isPartial }, theme, context) {
+      const d = result.details as SubStats | undefined;
+      const calls = d ? callLines(theme, d.calls) : [];
+      if (isPartial) {
+        const head = d ? themedHeader(theme, d) : theme.fg("dim", "starting\u2026");
+        return new Text([head, ...calls].join("\n"), 0, 0);
+      }
+      if (context.isError || d?.error) {
+        const head = theme.fg("error", `\u2716 ${d?.sessionId ?? "subagent"} \u00b7 ${d?.error ?? "failed"}`);
+        return new Text([head, ...calls].join("\n"), 0, 0);
+      }
+      const out = [d ? themedHeader(theme, d) : "", ...calls];
+      const body = (d?.text ?? "").trim();
+      if (body) {
+        const lines = body.split("\n");
+        const shown = expanded ? lines : lines.slice(0, 3);
+        out.push("", ...shown.map((l) => theme.fg("toolOutput", l)));
+        if (!expanded && lines.length > shown.length) {
+          out.push(theme.fg("dim", `\u2026 ${lines.length - shown.length} more lines`));
+        }
+      }
+      return new Text(out.join("\n"), 0, 0);
     },
   });
 }
