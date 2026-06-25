@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
@@ -28,6 +28,11 @@ import { join } from "node:path";
  * first level (no nesting problem, since the spawning process is unsandboxed).
  * In --mode json there is no UI, so pi-sandbox is deny-by-default: anything not
  * pre-allowed in sandbox.json is aborted rather than prompted.
+ *
+ * Resume: every result footer carries the subagent's session id (e.g.
+ * `sub-1a2b3c4d`). Passing that id back as the `resume` parameter continues
+ * that subagent with its full prior context (idempotent `--session-id`), so a
+ * follow-up can build on earlier work and benefit from prompt-cache hits.
  */
 
 function readSubagentModel(): string | undefined {
@@ -51,6 +56,16 @@ export default function (pi: ExtensionAPI) {
   const sandboxExt = join(getAgentDir(), "npm", "node_modules", "pi-sandbox", "index.ts");
   if (!existsSync(sandboxExt)) return; // require pi-sandbox; never run subagents unsandboxed
 
+  const SESSION_ID_RE = /^sub-[a-z0-9-]+$/i;
+  // Session files are named `<timestamp>_<sessionId>.jsonl`.
+  const sessionExists = (id: string): boolean => {
+    try {
+      return readdirSync(sessionDir).some((f) => f.endsWith(`_${id}.jsonl`));
+    } catch {
+      return false;
+    }
+  };
+
   pi.registerTool({
     name: "subagent",
     label: "Subagent",
@@ -68,9 +83,35 @@ export default function (pi: ExtensionAPI) {
           "(paths, constraints, what to return). It cannot see this conversation. Tell it to finish " +
           "with a clear final report, since only its final message is returned to you.",
       }),
+      resume: Type.Optional(
+        Type.String({
+          description:
+            "Optional. A subagent session id from a previous result footer (e.g. 'sub-1a2b3c4d') to " +
+            "CONTINUE that subagent with its full prior context. The `task` becomes the follow-up " +
+            "message. Omit to start a fresh subagent.",
+        }),
+      ),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const sessionId = `sub-${randomUUID().slice(0, 8)}`;
+      const resumeId = params.resume?.trim();
+      if (resumeId) {
+        if (!SESSION_ID_RE.test(resumeId)) {
+          return {
+            content: [{ type: "text", text: `Invalid subagent id '${resumeId}'. Expected a 'sub-...' id from a prior result footer.` }],
+            isError: true,
+            details: { resume: resumeId },
+          };
+        }
+        if (!sessionExists(resumeId)) {
+          return {
+            content: [{ type: "text", text: `No subagent session '${resumeId}' found to resume. Start a fresh subagent instead (omit 'resume').` }],
+            isError: true,
+            details: { resume: resumeId },
+          };
+        }
+      }
+      const sessionId = resumeId ?? `sub-${randomUUID().slice(0, 8)}`;
+      const resuming = Boolean(resumeId);
       const widgetKey = `subagent:${sessionId}`;
 
       const child = spawn(
@@ -108,8 +149,9 @@ export default function (pi: ExtensionAPI) {
           Object.entries(toolCounts)
             .map(([name, count]) => `${name}\u00d7${count}`)
             .join(" ") || "no tools yet";
+        const tag = resuming ? "\u21bb " : "";
         ctx.ui.setWidget(widgetKey, [
-          `\u{1f916} ${sessionId} \u00b7 ${turns} turn${turns === 1 ? "" : "s"} \u00b7 ${tools} \u00b7 $${totalCost.toFixed(4)}`,
+          `\u{1f916} ${tag}${sessionId} \u00b7 ${turns} turn${turns === 1 ? "" : "s"} \u00b7 ${tools} \u00b7 $${totalCost.toFixed(4)}`,
         ]);
       };
       renderWidget();
