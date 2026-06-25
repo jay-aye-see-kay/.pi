@@ -8,6 +8,11 @@
     "github-copilot/claude-opus-4.8",
     "github-copilot/claude-sonnet-4.6"
   ],
+  "subagentModels": {
+    "small": "github-copilot/claude-haiku-4.5",
+    "standard": "github-copilot/claude-sonnet-4.6",
+    "reasoning": "github-copilot/claude-opus-4.8"
+  },
   "packages": [
     "npm:pi-sandbox"
   ],

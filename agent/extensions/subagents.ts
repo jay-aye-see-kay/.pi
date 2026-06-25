@@ -16,9 +16,16 @@ import { join } from "node:path";
  * enters the main agent's context. Live telemetry (turns / tools / cost) is
  * shown to the human via a TUI widget, not fed to the model.
  *
- * Configuration: set `subagentModel` in ~/.pi/agent/settings.json
- *   "subagentModel": "github-copilot/claude-sonnet-4.6"
- * If unset/empty, the tool is NOT registered (subagents disabled, no fallback).
+ * Configuration: set `subagentModels` in ~/.pi/agent/settings.json with three
+ * tiers (small / standard / reasoning):
+ *   "subagentModels": {
+ *     "small":     "github-copilot/claude-haiku-4.5",
+ *     "standard":  "github-copilot/claude-sonnet-4.6",
+ *     "reasoning": "github-copilot/claude-opus-4.8"
+ *   }
+ * If the key is absent the tool is NOT registered (disabled silently, no
+ * fallback). If present but malformed, the tool is disabled and the user is
+ * warned at session start. Tool calls default to `standard`.
  *
  * Recursion: subagents are spawned with `--no-extensions`, so this extension
  * never loads inside a subagent. `PI_SUBAGENT=1` is a belt-and-suspenders guard.
@@ -38,14 +45,46 @@ import { join } from "node:path";
  * than to do new work. Prompt-cache hits are a bonus.
  */
 
-function readSubagentModel(): string | undefined {
+type SubagentModels = { small: string; standard: string; reasoning: string };
+const TIERS = ["small", "standard", "reasoning"] as const;
+type Tier = (typeof TIERS)[number];
+
+type ModelsConfig =
+  | { status: "disabled" } // key absent / settings unreadable — stay silent
+  | { status: "invalid"; message: string } // present but malformed — warn the user
+  | { status: "ok"; models: SubagentModels };
+
+function readSubagentModels(): ModelsConfig {
+  let parsed: { subagentModels?: unknown };
   try {
-    const raw = readFileSync(join(getAgentDir(), "settings.json"), "utf8");
-    const model = (JSON.parse(raw) as { subagentModel?: unknown }).subagentModel;
-    return typeof model === "string" && model.trim() ? model.trim() : undefined;
+    parsed = JSON.parse(readFileSync(join(getAgentDir(), "settings.json"), "utf8"));
   } catch {
-    return undefined;
+    return { status: "disabled" };
   }
+  const raw = parsed.subagentModels;
+  if (raw === undefined) return { status: "disabled" }; // no key, no fallback
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      status: "invalid",
+      message: "subagentModels must be an object with 'small', 'standard', and 'reasoning' model strings.",
+    };
+  }
+  const obj = raw as Record<string, unknown>;
+  const missing = TIERS.filter((t) => typeof obj[t] !== "string" || !(obj[t] as string).trim());
+  if (missing.length) {
+    return {
+      status: "invalid",
+      message: `subagentModels is missing a valid model string for: ${missing.join(", ")}.`,
+    };
+  }
+  return {
+    status: "ok",
+    models: {
+      small: (obj.small as string).trim(),
+      standard: (obj.standard as string).trim(),
+      reasoning: (obj.reasoning as string).trim(),
+    },
+  };
 }
 
 /** One subagent tool call: name + a one-line arg (input) summary. */
@@ -110,8 +149,16 @@ export default function (pi: ExtensionAPI) {
   // Never expose the subagent tool inside a subagent.
   if (process.env.PI_SUBAGENT) return;
 
-  const model = readSubagentModel();
-  if (!model) return; // disabled when subagentModel is unset/falsy — no fallback
+  const cfg = readSubagentModels();
+  if (cfg.status === "disabled") return; // no subagentModels key — silent, no fallback
+  if (cfg.status === "invalid") {
+    // Malformed config: disable the tool but tell the user why.
+    pi.on("session_start", async (_e, ctx) => {
+      ctx.ui.notify(`Subagents disabled: ${cfg.message}`, "error");
+    });
+    return;
+  }
+  const models = cfg.models;
 
   const sessionDir = join(getAgentDir(), "subagent-sessions");
   const sandboxExt = join(getAgentDir(), "npm", "node_modules", "pi-sandbox", "index.ts");
@@ -149,6 +196,11 @@ Key rule: the subagent can't see this conversation — state the outcome in \`go
       context: Type.String({
         description: `All the information to help the subagent achieve its goal.`,
       }),
+      model: Type.Optional(
+        Type.Union([Type.Literal("small"), Type.Literal("standard"), Type.Literal("reasoning")], {
+          description: `Which model tier to use (leave unset for standard unless you have a reason): 'small' for finding things up, 'reasoning' for hard analysis.`,
+        }),
+      ),
       resume: Type.Optional(
         Type.String({
           description: `Optional. Resume a finished subagent by its id (e.g. 'sub-1a2b3c4d', from a prior result footer) to ask it a follow-up; \`goal\` becomes the follow-up question.
@@ -178,6 +230,9 @@ Key rule: resume to get information not to do work.`,
       }
       const sessionId = resumeId ?? `sub-${randomUUID().slice(0, 8)}`;
       const resuming = Boolean(resumeId);
+
+      const tier: Tier = params.model ?? "standard";
+      const model = models[tier];
 
       const promptParts = [
         "## Goal",
@@ -337,6 +392,8 @@ Key rule: resume to get information not to do work.`,
       let head = theme.fg("toolTitle", theme.bold("subagent"));
       const resume = (args.resume ?? "").trim();
       if (resume) head += " " + theme.fg("accent", `\u21bb ${resume}`);
+      const tier = args.model ?? "standard";
+      if (tier !== "standard") head += " " + theme.fg("muted", `[${tier}]`);
       const goal = (args.goal ?? "").trim().split("\n")[0];
       if (goal) head += " " + theme.fg("dim", clip(goal, 160));
       return new Text(head, 0, 0);
