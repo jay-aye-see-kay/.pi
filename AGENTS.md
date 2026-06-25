@@ -1,0 +1,4 @@
+- extensions
+    - should start simple and follow pi idioms
+    - should pass type checking (`cd ~/.pi/agent/extensions/ && tsc --noEmit`) (`tsc` available on $PATH)
+    - where practical, should be a file not a dir in extensions/
