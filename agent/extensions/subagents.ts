@@ -141,14 +141,17 @@ Reach for one when work is big or noisy to do but small to report — keep the m
 - a fresh second opinion (review a diff, argue failure cases)
 Run several in parallel for independent subtasks, then merge.
 
-Key rule: the subagent can't see this conversation — give it one clear task with all the context it needs, and have it finish with a standalone final report.`,
+Key rule: the subagent can't see this conversation — state the outcome in \`goal\` and put everything it needs in \`context\`. It finishes with a standalone final report.`,
     parameters: Type.Object({
-      prompt: Type.String({
-        description: `One clear task with all context the subagent needs to complete it standalone (paths, constraints, goal).`,
+      goal: Type.String({
+        description: `One concise sentence naming the outcome this subagent must deliver.`,
+      }),
+      context: Type.String({
+        description: `All the information to help the subagent achieve its goal.`,
       }),
       resume: Type.Optional(
         Type.String({
-          description: `Optional. Resume a finished subagent by its id (e.g. 'sub-1a2b3c4d', from a prior result footer) to ask it a follow-up; \`prompt\` becomes the follow-up message.
+          description: `Optional. Resume a finished subagent by its id (e.g. 'sub-1a2b3c4d', from a prior result footer) to ask it a follow-up; \`goal\` becomes the follow-up question.
 
 Good for: pulling more information out of a subagent that already holds it — a detail from a page/file/search it loaded, or the reasoning behind a result it gave you.
 Key rule: resume to get information not to do work.`,
@@ -176,6 +179,18 @@ Key rule: resume to get information not to do work.`,
       const sessionId = resumeId ?? `sub-${randomUUID().slice(0, 8)}`;
       const resuming = Boolean(resumeId);
 
+      const promptParts = [
+        "## Goal",
+        params.goal.trim(),
+        "## Context",
+        params.context.trim(),
+        "## Envronment and Sandbox",
+        "You are a resumable subagent running in a sandbox. " +
+        "The sandbox has been setup to keep out of your way, but nothing is perfect. " +
+        "Stop and describe the issue with your envronment if you are blocked so that " +
+        "information this can be passed back to the user to be fixed."
+      ];
+
       const child = spawn(
         "pi",
         [
@@ -187,7 +202,7 @@ Key rule: resume to get information not to do work.`,
           "--session-id", sessionId,
           "--model", model,
           "-n", `subagent/${sessionId}`,
-          "-p", params.prompt,
+          "-p", promptParts.join("\n\n"),
         ],
         {
           cwd: ctx.cwd,
@@ -322,11 +337,8 @@ Key rule: resume to get information not to do work.`,
       let head = theme.fg("toolTitle", theme.bold("subagent"));
       const resume = (args.resume ?? "").trim();
       if (resume) head += " " + theme.fg("accent", `\u21bb ${resume}`);
-      const firstLine = (args.prompt ?? "").trim().split("\n")[0];
-      if (firstLine) {
-        const clip = firstLine.length > 72 ? firstLine.slice(0, 71) + "\u2026" : firstLine;
-        head += " " + theme.fg("dim", clip);
-      }
+      const goal = (args.goal ?? "").trim().split("\n")[0];
+      if (goal) head += " " + theme.fg("dim", clip(goal, 160));
       return new Text(head, 0, 0);
     },
 
