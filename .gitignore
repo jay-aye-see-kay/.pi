@@ -1,6 +1,7 @@
 node_modules
 /agent/auth.json
 /agent/sessions/
+/agent/subagent-sessions/
 /agent/mcp-cache.json
 /agent/mcp-oauth/
 /agent/trust.json

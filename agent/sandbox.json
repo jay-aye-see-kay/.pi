@@ -8,6 +8,7 @@
       "localhost",
       "github.com",
       "*.github.com",
+      "*.githubcopilot.com",
       "raw.githubusercontent.com",
       "release-assets.githubusercontent.com",
       "results-receiver.actions.githubusercontent.com",
@@ -27,7 +28,7 @@
       "cultureamp.atlassian.net",
       "*.amazonaws.com",
       "*.awsapps.com",
-      "docs.anthropic.com"
+      "*.anthropic.com"
     ],
     "deniedDomains": []
   },
