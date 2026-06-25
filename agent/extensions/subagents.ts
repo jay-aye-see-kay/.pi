@@ -315,6 +315,17 @@ function summarizeCall(args: unknown): string {
   }
 }
 
+/**
+ * Footer status string shown in the pi status bar.
+ * Shown while a subagent is running (with a spinner prefix) and after
+ * each call completes (with cumulative session totals).
+ */
+function footerStatus(t: SessionTotals, running: boolean): string {
+  const prefix = running ? "\u25b6 " : "";
+  const sub = `${t.count} sub${t.count === 1 ? "" : "s"}`;
+  return `${prefix}\u{1f916} ${sub} \u00b7 $${t.cost.toFixed(4)}`;
+}
+
 /** Plain-text telemetry for the model-facing onUpdate content (no theme). */
 function plainTelemetry(d: SubStats): string {
   const tag = d.resuming ? "\u21bb " : "";
@@ -393,6 +404,21 @@ function failure(text: string, details: Record<string, unknown>): AgentToolResul
   return { content: [{ type: "text", text }], details, isError: true };
 }
 
+// ---------------------------------------------------------------------------
+// Session-scoped subagent cost accumulator
+// ---------------------------------------------------------------------------
+
+/** Totals accumulated across all subagent calls in the current session. */
+interface SessionTotals {
+  count: number;
+  cost: number;
+  turns: number;
+}
+
+// ---------------------------------------------------------------------------
+// Extension
+// ---------------------------------------------------------------------------
+
 export default function (pi: ExtensionAPI) {
   // Never expose the subagent tool inside a subagent.
   if (process.env.PI_SUBAGENT) return;
@@ -407,6 +433,12 @@ export default function (pi: ExtensionAPI) {
     return;
   }
   const models = cfg.models;
+
+  // Reset on each session (new / resume / fork / reload).
+  let totals: SessionTotals = { count: 0, cost: 0, turns: 0 };
+  pi.on("session_start", () => {
+    totals = { count: 0, cost: 0, turns: 0 };
+  });
 
   const sessionDir = join(getAgentDir(), "subagent-sessions");
   const sandboxExt = join(getAgentDir(), "npm", "node_modules", "pi-sandbox", "index.ts");
@@ -481,7 +513,11 @@ Key rule: resume to get information not to do work.`,
           signal,
         },
         // Live telemetry → inline tool block (drawn by renderResult with isPartial).
-        (stats) => onUpdate?.({ content: [{ type: "text", text: plainTelemetry(stats) }], details: stats }),
+        (stats) => {
+          onUpdate?.({ content: [{ type: "text", text: plainTelemetry(stats) }], details: stats });
+          // Show a live footer indicator while the subagent is running.
+          ctx.ui.setStatus("subagents", footerStatus({ ...totals, cost: totals.cost + stats.cost, turns: totals.turns + stats.turns }, true));
+        },
       );
 
       const { stats, finalText, exitCode } = outcome;
@@ -502,6 +538,12 @@ Key rule: resume to get information not to do work.`,
           exitCode,
         });
       }
+
+      // Update session-level running totals and footer.
+      totals.count += 1;
+      totals.cost += stats.cost;
+      totals.turns += stats.turns;
+      ctx.ui.setStatus("subagents", footerStatus(totals, false));
 
       const body = finalText || "(subagent produced no final text)";
       const footer = `[subagent ${sessionId} \u00b7 ${plural(stats.turns, "turn")} \u00b7 $${stats.cost.toFixed(4)}]`;
