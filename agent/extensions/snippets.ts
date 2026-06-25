@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const SNIPPETS: Record<string, string> = {
   tdd: "use red/green TDD: write a failing test first, then the minimal code to make it pass, then refactor",

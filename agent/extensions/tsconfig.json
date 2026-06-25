@@ -9,17 +9,17 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@mariozechner/pi-coding-agent": [
-        "../../../.npm-global/lib/node_modules/@mariozechner/pi-coding-agent/dist/index.d.ts"
+      "@earendil-works/pi-coding-agent": [
+        "../../../.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"
       ],
-      "@sinclair/typebox": [
-        "../../../.npm-global/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@sinclair/typebox/build/cjs/index.d.ts"
+      "typebox": [
+        "../../../.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/typebox/build/index.d.mts"
       ],
-      "@mariozechner/pi-tui": [
-        "../../../.npm-global/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-tui/dist/index.d.ts"
+      "@earendil-works/pi-tui": [
+        "../../../.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/index.d.ts"
       ],
-      "@mariozechner/pi-ai": [
-        "../../../.npm-global/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-ai/dist/index.d.ts"
+      "@earendil-works/pi-ai": [
+        "../../../.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/index.d.ts"
       ]
     }
   },
