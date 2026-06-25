@@ -117,6 +117,8 @@ interface SubStats {
   sessionId: string;
   resuming: boolean;
   cost: number;
+  tokensIn: number;
+  tokensOut: number;
   turns: number;
   calls: ToolCall[];
   running: boolean;
@@ -208,6 +210,8 @@ async function runSubagent(
 
   let finalText = "";
   let totalCost = 0;
+  let totalTokensIn = 0;
+  let totalTokensOut = 0;
   let turns = 0;
   const calls: ToolCall[] = [];
   let stderr = "";
@@ -217,6 +221,8 @@ async function runSubagent(
     sessionId: opts.sessionId,
     resuming: opts.resuming,
     cost: totalCost,
+    tokensIn: totalTokensIn,
+    tokensOut: totalTokensOut,
     turns,
     calls: calls.map((c) => ({ ...c })),
     running,
@@ -232,7 +238,11 @@ async function runSubagent(
         emit();
         break;
       case "message_end":
-        if (ev.message.role === "assistant") totalCost += ev.message.usage.cost.total;
+        if (ev.message.role === "assistant") {
+          totalCost += ev.message.usage.cost.total;
+          totalTokensIn += ev.message.usage.input;
+          totalTokensOut += ev.message.usage.output;
+        }
         break;
       case "turn_end":
         turns += 1;
@@ -301,6 +311,17 @@ const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1)
 
 const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`;
 
+/** Format a token count compactly: 1234 → "1.2k", 12345 → "12k", <1000 → "834" */
+function fmtTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
+  return String(n);
+}
+
+/** Format in/out token pair: "1.1k/15k" */
+function fmtTokenPair(input: number, output: number): string {
+  return `${fmtTokens(input)}/${fmtTokens(output)}`;
+}
+
 /** Best-effort one-line summary of a tool call's args (command / path / query / etc.). */
 function summarizeCall(args: unknown): string {
   if (!args || typeof args !== "object") return "";
@@ -329,16 +350,19 @@ function footerStatus(t: SessionTotals, running: boolean): string {
 /** Plain-text telemetry for the model-facing onUpdate content (no theme). */
 function plainTelemetry(d: SubStats): string {
   const tag = d.resuming ? "\u21bb " : "";
-  return `${tag}${d.sessionId} \u00b7 ${plural(d.turns, "turn")} \u00b7 ${plural(d.calls.length, "tool call")} \u00b7 $${d.cost.toFixed(4)}`;
+  const tok = fmtTokenPair(d.tokensIn, d.tokensOut);
+  return `${tag}${d.sessionId} \u00b7 ${plural(d.turns, "turn")} \u00b7 ${plural(d.calls.length, "tool call")} \u00b7 ${tok} \u00b7 $${d.cost.toFixed(4)}`;
 }
 
-/** Themed one-line header: 🤖 session · turns · cost. */
+/** Themed one-line header: 🤖 session · turns · tokens · cost. */
 function themedHeader(theme: Theme, d: SubStats): string {
   const dot = ` ${theme.fg("dim", "\u00b7")} `;
   const tag = d.resuming ? "\u21bb " : "";
+  const tok = theme.fg("muted", fmtTokenPair(d.tokensIn, d.tokensOut));
   return [
     `\u{1f916} ${tag}${theme.fg("accent", d.sessionId)}`,
     plural(d.turns, "turn"),
+    tok,
     theme.fg("muted", `$${d.cost.toFixed(4)}`),
   ].join(dot);
 }
