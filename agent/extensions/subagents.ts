@@ -1,11 +1,17 @@
-import type { AgentSessionEvent, AgentToolResult, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type {
+  AgentSessionEvent,
+  AgentToolResult,
+  ExtensionAPI,
+  ExtensionCommandContext,
+  Theme,
+} from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SessionManager, SessionSelectorComponent } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 /**
  * subagent — delegate a self-contained task to an isolated `pi` process.
@@ -420,6 +426,68 @@ function renderResult(
 }
 
 // ---------------------------------------------------------------------------
+// Browsing subagent sessions
+// ---------------------------------------------------------------------------
+
+/**
+ * Open pi's native session picker scoped to the subagent session directory, so
+ * the user can browse and resume a subagent session in the normal UI. Subagent
+ * sessions live in their own dir (keeping them out of the built-in `/resume`,
+ * `pi -r`, and `pi -c`), so this command is the way back in.
+ */
+async function openSubagentPicker(sessionDir: string, ctx: ExtensionCommandContext): Promise<void> {
+  if (ctx.mode !== "tui") {
+    ctx.ui.notify("Subagent sessions can only be browsed in interactive mode.", "warning");
+    return;
+  }
+  // Avoid opening an empty picker when this project has no subagent sessions.
+  const existing = await SessionManager.list(ctx.cwd, sessionDir);
+  if (existing.length === 0) {
+    ctx.ui.notify("No subagent sessions for this project yet.", "info");
+    return;
+  }
+
+  const chosen = await ctx.ui.custom<string | undefined>((tui, _theme, keybindings, done) =>
+    new SessionSelectorComponent(
+      (onProgress) => SessionManager.list(ctx.cwd, sessionDir, onProgress),
+      (onProgress) => SessionManager.listAll(sessionDir, onProgress),
+      (sessionPath) => done(sessionPath),
+      () => done(undefined),
+      () => done(undefined),
+      () => tui.requestRender(),
+      {
+        renameSession: async (sessionFilePath, nextName) => {
+          const next = (nextName ?? "").trim();
+          if (next) SessionManager.open(sessionFilePath).appendSessionInfo(next);
+        },
+        showRenameHint: true,
+        keybindings,
+      },
+    ),
+  );
+
+  if (!chosen) return;
+  try {
+    // switchSession() re-roots pi's session dir at the resumed file's parent
+    // (here: subagent-sessions/), which would break the built-in /resume.
+    // Mirror pi's /import: copy the chosen session into the active session dir,
+    // then switch to the copy so the runtime stays anchored to the normal dir.
+    // The original stays in subagent-sessions/ so the subagent tool can still
+    // resume it by id.
+    const destDir = ctx.sessionManager.getSessionDir();
+    const destPath = join(destDir, basename(chosen));
+    if (resolve(destPath) !== resolve(chosen)) {
+      mkdirSync(destDir, { recursive: true });
+      copyFileSync(chosen, destPath);
+    }
+    const result = await ctx.switchSession(destPath);
+    if (!result.cancelled) ctx.ui.notify("Resumed subagent session.", "info");
+  } catch (err) {
+    ctx.ui.notify(`Failed to resume subagent session: ${(err as Error).message}`, "error");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
 
@@ -465,6 +533,16 @@ export default function (pi: ExtensionAPI) {
   });
 
   const sessionDir = join(getAgentDir(), "subagent-sessions");
+
+  // Browse & resume subagent sessions in the normal UI (they live in their own
+  // dir, so they never appear in the built-in /resume, pi -r, or pi -c).
+  pi.registerCommand("subagents", {
+    description: "Browse and resume subagent sessions",
+    handler: async (_args, ctx) => {
+      await openSubagentPicker(sessionDir, ctx);
+    },
+  });
+
   const sandboxExt = join(getAgentDir(), "npm", "node_modules", "pi-sandbox", "index.ts");
   if (!existsSync(sandboxExt)) return; // require pi-sandbox; never run subagents unsandboxed
 
