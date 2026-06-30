@@ -3,6 +3,7 @@ import type {
   AgentToolResult,
   ExtensionAPI,
   ExtensionCommandContext,
+  SessionInfo,
   Theme,
 } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, SessionManager, SessionSelectorComponent } from "@earendil-works/pi-coding-agent";
@@ -430,6 +431,22 @@ function renderResult(
 // ---------------------------------------------------------------------------
 
 /**
+ * Replace the auto-generated `subagent/<id>` name with a short preview of the
+ * session's first message, so the picker shows what each subagent was doing
+ * (like /resume) instead of just an id. User-renamed sessions are left as-is.
+ */
+function withPreviews(sessions: SessionInfo[]): SessionInfo[] {
+  return sessions.map((s) => {
+    const isAutoName = !s.name || s.name.startsWith("subagent/");
+    if (!isAutoName) return s;
+    // Pass the full cleaned first message; the picker truncates it to the
+    // available width itself (like /resume), so it adapts to screen size.
+    const preview = s.firstMessage.replace(/^#+\s*Goal\s*/i, "").replace(/\s+/g, " ").trim();
+    return preview ? { ...s, name: preview } : s;
+  });
+}
+
+/**
  * Open pi's native session picker scoped to the subagent session directory, so
  * the user can browse and resume a subagent session in the normal UI. Subagent
  * sessions live in their own dir (keeping them out of the built-in `/resume`,
@@ -449,8 +466,8 @@ async function openSubagentPicker(sessionDir: string, ctx: ExtensionCommandConte
 
   const chosen = await ctx.ui.custom<string | undefined>((tui, _theme, keybindings, done) =>
     new SessionSelectorComponent(
-      (onProgress) => SessionManager.list(ctx.cwd, sessionDir, onProgress),
-      (onProgress) => SessionManager.listAll(sessionDir, onProgress),
+      (onProgress) => SessionManager.list(ctx.cwd, sessionDir, onProgress).then(withPreviews),
+      (onProgress) => SessionManager.listAll(sessionDir, onProgress).then(withPreviews),
       (sessionPath) => done(sessionPath),
       () => done(undefined),
       () => done(undefined),
