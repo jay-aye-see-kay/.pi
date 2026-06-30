@@ -34,7 +34,8 @@
   },
   "filesystem": {
     "denyRead": [
-      "~"
+      "~",
+      "~/Library/Keychains"
     ],
     "allowRead": [
       ".",
@@ -58,7 +59,6 @@
       "~/.yarnrc",
       "~/.yarnrc.yml",
       "~/Downloads/",
-      "~/Library",
       "~/code",
       "~/go",
       "~/hotel",
