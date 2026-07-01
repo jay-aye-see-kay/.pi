@@ -3,3 +3,7 @@
 You are running in a `@anthropic-ai/sandbox-runtime` sandbox, configured in `~/.pi/agent/sandbox.json`.
 
 The user has configured the sandbox with permissions for you to be effective, with guardrails to prevent most serious mistakes. If the configuration is getting in your way, stop and tell the user so they can help, they want to make things easy.
+
+# GitHub Access
+
+Use the `gh` CLI for any access to GitHub (repos, issues, PRs, code search, etc.). It is authenticated with a read-only token that has access to all company (cultureamp) repos.
