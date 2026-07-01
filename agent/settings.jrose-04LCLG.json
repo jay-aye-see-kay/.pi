@@ -1,12 +1,13 @@
 {
-  "lastChangelogVersion": "0.80.2",
+  "lastChangelogVersion": "0.80.3",
   "theme": "light",
-  "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4.8",
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-sonnet-5",
   "defaultThinkingLevel": "medium",
   "enabledModels": [
     "github-copilot/claude-opus-4.8",
-    "github-copilot/claude-sonnet-4.6"
+    "github-copilot/claude-sonnet-4.6",
+    "anthropic/claude-sonnet-5"
   ],
   "subagentModels": {
     "small": "github-copilot/claude-haiku-4.5",
