@@ -49,7 +49,10 @@ function notify(title: string, body: string): void {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.on("agent_end", async () => {
+  pi.on("agent_end", async (_event, ctx) => {
+    // OSC escape sequences are terminal-specific; skip in non-TUI modes
+    // (--mode json stdout is the event stream, and RPC has no terminal).
+    if (ctx.mode !== "tui") return;
     notify("Pi", "Ready for input");
   });
 }

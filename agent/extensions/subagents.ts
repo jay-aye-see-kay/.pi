@@ -34,15 +34,17 @@ import { basename, join, resolve } from "node:path";
  * fallback). If present but malformed, the tool is disabled and the user is
  * warned at session start. Tool calls default to `standard`.
  *
- * Recursion: subagents are spawned with `--no-extensions`, so this extension
- * never loads inside a subagent. `PI_SUBAGENT=1` is a belt-and-suspenders guard.
+ * Recursion: subagents are spawned with `PI_SUBAGENT=1`, which causes this
+ * extension to return early — the subagent tool is never registered inside a
+ * subagent.
  *
- * Sandboxing: the child is spawned directly (bypassing the sandboxed bash
- * tool), so it would otherwise run unsandboxed. We pass `--no-extensions -e
- * <pi-sandbox>` so the child loads ONLY pi-sandbox and sandboxes ITSELF at
- * first level (no nesting problem, since the spawning process is unsandboxed).
- * In --mode json there is no UI, so pi-sandbox is deny-by-default: anything not
- * pre-allowed in sandbox.json is aborted rather than prompted.
+ * Sandboxing: the child is spawned directly (bypassing the sandboxed bash tool),
+ * so it would otherwise run unsandboxed. We require `npm:pi-sandbox` to be
+ * installed in `~/.pi/agent/npm/node_modules` (where it lands when listed in
+ * settings.json `packages`). The child spawns with the standard global config,
+ * which loads pi-sandbox automatically from that packages list and sandboxes
+ * ITSELF. In --mode json there is no UI, so pi-sandbox is deny-by-default:
+ * anything not pre-allowed in sandbox.json is aborted rather than prompted.
  *
  * Resume: every result footer carries the subagent's session id (e.g.
  * `sub-1a2b3c4d`). Passing that id back as the `resume` parameter re-opens
@@ -169,7 +171,6 @@ interface RunOptions {
   model: string;
   prompt: string;
   sessionDir: string;
-  sandboxExt: string;
   cwd: string;
   signal?: AbortSignal;
 }
@@ -196,9 +197,6 @@ async function runSubagent(
     "pi",
     [
       "--mode", "json",
-      "--no-extensions",
-      "-e", opts.sandboxExt,
-      "--no-skills",
       "--session-dir", opts.sessionDir,
       "--session-id", opts.sessionId,
       "--model", opts.model,
@@ -560,8 +558,11 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  const sandboxExt = join(getAgentDir(), "npm", "node_modules", "pi-sandbox", "index.ts");
-  if (!existsSync(sandboxExt)) return; // require pi-sandbox; never run subagents unsandboxed
+  // Require pi-sandbox to be installed (lands here when listed in settings.json `packages`).
+  // The child spawns with the standard global config, which loads it automatically.
+  // Never run subagents without the sandbox.
+  const sandboxPkg = join(getAgentDir(), "npm", "node_modules", "pi-sandbox");
+  if (!existsSync(sandboxPkg)) return;
 
   pi.registerTool({
     name: "subagent",
@@ -627,7 +628,6 @@ Key rule: resume to get information not to do work.`,
           model: models[tier],
           prompt: buildPrompt(params.goal, params.context),
           sessionDir,
-          sandboxExt,
           cwd: ctx.cwd,
           signal,
         },
