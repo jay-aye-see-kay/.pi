@@ -142,13 +142,35 @@ interface SubStats {
 
 const SESSION_ID_RE = /^sub-[a-z0-9-]+$/i;
 
-/** Session files are named `<timestamp>_<sessionId>.jsonl`. */
-function sessionExists(sessionDir: string, id: string): boolean {
+/**
+ * Subagent sessions live in per-parent subdirs: `subagent-sessions/<parent-id>/`.
+ * Return the immediate subdirs of `sessionDir` (each a parent-session bucket).
+ */
+function sessionSubdirs(sessionDir: string): string[] {
   try {
-    return readdirSync(sessionDir).some((f) => f.endsWith(`_${id}.jsonl`));
+    return readdirSync(sessionDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => join(sessionDir, e.name));
   } catch {
-    return false;
+    return [];
   }
+}
+
+/**
+ * Locate the parent-session subdir that holds session `<id>` (files are named
+ * `<timestamp>_<sessionId>.jsonl`). Returns the containing dir, or null if the
+ * session doesn't exist anywhere. A subagent stays in the subdir of the parent
+ * that created it, even when resumed from a different parent session.
+ */
+function findSessionDir(sessionDir: string, id: string): string | null {
+  for (const dir of sessionSubdirs(sessionDir)) {
+    try {
+      if (readdirSync(dir).some((f) => f.endsWith(`_${id}.jsonl`))) return dir;
+    } catch {
+      // ignore unreadable subdir
+    }
+  }
+  return null;
 }
 
 function buildPrompt(goal: string, context: string): string {
@@ -445,6 +467,18 @@ function withPreviews(sessions: SessionInfo[]): SessionInfo[] {
 }
 
 /**
+ * List every subagent session across all per-parent subdirs of `sessionDir`,
+ * with first-message previews applied. `SessionManager.list` only reads a
+ * single flat dir (no recursion), so we enumerate the parent buckets and merge.
+ */
+async function listAllSubagentSessions(sessionDir: string, cwd: string): Promise<SessionInfo[]> {
+  const perDir = await Promise.all(sessionSubdirs(sessionDir).map((dir) => SessionManager.list(cwd, dir)));
+  const merged = perDir.flat();
+  merged.sort((a, b) => b.modified.getTime() - a.modified.getTime());
+  return withPreviews(merged);
+}
+
+/**
  * Open pi's native session picker scoped to the subagent session directory, so
  * the user can browse and resume a subagent session in the normal UI. Subagent
  * sessions live in their own dir (keeping them out of the built-in `/resume`,
@@ -456,7 +490,7 @@ async function openSubagentPicker(sessionDir: string, ctx: ExtensionCommandConte
     return;
   }
   // Avoid opening an empty picker when this project has no subagent sessions.
-  const existing = await SessionManager.list(ctx.cwd, sessionDir);
+  const existing = await listAllSubagentSessions(sessionDir, ctx.cwd);
   if (existing.length === 0) {
     ctx.ui.notify("No subagent sessions for this project yet.", "info");
     return;
@@ -464,8 +498,8 @@ async function openSubagentPicker(sessionDir: string, ctx: ExtensionCommandConte
 
   const chosen = await ctx.ui.custom<string | undefined>((tui, _theme, keybindings, done) =>
     new SessionSelectorComponent(
-      (onProgress) => SessionManager.list(ctx.cwd, sessionDir, onProgress).then(withPreviews),
-      (onProgress) => SessionManager.listAll(sessionDir, onProgress).then(withPreviews),
+      () => listAllSubagentSessions(sessionDir, ctx.cwd),
+      () => listAllSubagentSessions(sessionDir, ctx.cwd),
       (sessionPath) => done(sessionPath),
       () => done(undefined),
       () => done(undefined),
@@ -603,7 +637,11 @@ Key rule: resume to get information not to do work.`,
 
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       // Resolve (and validate) the session: resume an existing one or mint a new id.
+      // New subagents go under the current parent session's subdir; a resumed
+      // subagent stays in whichever parent subdir originally created it.
+      const parentId = ctx.sessionManager.getSessionId();
       const resumeId = params.resume?.trim();
+      let runDir: string;
       if (resumeId) {
         if (!SESSION_ID_RE.test(resumeId)) {
           return failure(
@@ -611,12 +649,17 @@ Key rule: resume to get information not to do work.`,
             { resume: resumeId },
           );
         }
-        if (!sessionExists(sessionDir, resumeId)) {
+        const existingDir = findSessionDir(sessionDir, resumeId);
+        if (!existingDir) {
           return failure(
             `No subagent session '${resumeId}' found to resume. Start a fresh subagent instead (omit 'resume').`,
             { resume: resumeId },
           );
         }
+        runDir = existingDir;
+      } else {
+        runDir = join(sessionDir, parentId);
+        mkdirSync(runDir, { recursive: true });
       }
       const sessionId = resumeId ?? `sub-${randomUUID().slice(0, 8)}`;
       const tier: Tier = params.model ?? "standard";
@@ -627,7 +670,7 @@ Key rule: resume to get information not to do work.`,
           resuming: Boolean(resumeId),
           model: models[tier],
           prompt: buildPrompt(params.goal, params.context),
-          sessionDir,
+          sessionDir: runDir,
           cwd: ctx.cwd,
           signal,
         },
