@@ -10,7 +10,7 @@ import { getAgentDir, SessionManager, SessionSelectorComponent } from "@earendil
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, join, resolve } from "node:path";
 
@@ -171,6 +171,34 @@ function findSessionDir(sessionDir: string, id: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Stamp `branchedFrom: <parentId>` into the subagent session file's header so
+ * agentsview nests the subagent under the session that spawned it. agentsview
+ * only reads the legacy `branchedFrom` key (pi natively writes `parentSession`,
+ * which agentsview ignores) and resolves it to `pi:<basename minus .jsonl>`, so
+ * the value must be the parent's bare header id — exactly what getSessionId()
+ * returns and what our per-parent subdir is named.
+ *
+ * The child `pi` has already exited by the time we run this (no race), so we
+ * safely rewrite line 1. Idempotent and best-effort: never fails the tool.
+ */
+function stampBranchedFrom(runDir: string, sessionId: string, parentId: string): void {
+  try {
+    const file = readdirSync(runDir).find((f) => f.endsWith(`_${sessionId}.jsonl`));
+    if (!file) return; // no session file written (e.g. spawn error, no output)
+    const path = join(runDir, file);
+    const content = readFileSync(path, "utf8");
+    const nl = content.indexOf("\n");
+    if (nl < 0) return;
+    const header = JSON.parse(content.slice(0, nl));
+    if (header.type !== "session" || header.branchedFrom) return; // idempotent
+    header.branchedFrom = parentId;
+    writeFileSync(path, JSON.stringify(header) + content.slice(nl));
+  } catch {
+    // best-effort: lineage is a nicety, not worth failing the run over
+  }
 }
 
 function buildPrompt(goal: string, context: string): string {
@@ -683,6 +711,9 @@ Key rule: resume to get information not to do work.`,
       );
 
       const { stats, finalText, exitCode } = outcome;
+
+      // Stamp parent lineage into the subagent's session header for agentsview.
+      stampBranchedFrom(runDir, sessionId, parentId);
 
       if (outcome.aborted) {
         return failure(`Subagent ${sessionId} aborted.`, { ...stats, error: "aborted" });
