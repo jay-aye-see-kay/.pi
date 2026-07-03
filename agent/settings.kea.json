@@ -9,9 +9,9 @@
     "github-copilot/claude-sonnet-4.6"
   ],
   "subagentModels": {
-    "small": "github-copilot/claude-haiku-4.5",
-    "standard": "github-copilot/claude-sonnet-4.6",
-    "reasoning": "github-copilot/claude-opus-4.8"
+    "github-copilot/claude-sonnet-4.6": "good all-round model, the default choice",
+    "github-copilot/claude-haiku-4.5": "fast and cheap, use for finding things and simple grunt work",
+    "github-copilot/claude-opus-4.8": "slower and more expensive but great for hard problems and reasoning"
   },
   "packages": [
     "npm:pi-sandbox"

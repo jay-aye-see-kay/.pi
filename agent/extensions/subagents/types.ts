@@ -2,15 +2,16 @@
 // Shared types for the subagent extension
 // ---------------------------------------------------------------------------
 
-export const TIERS = ["small", "standard", "reasoning"] as const;
-export type Tier = (typeof TIERS)[number];
-
-export type SubagentModels = { small: string; standard: string; reasoning: string };
+/** One configured model: its full id (provider/model) and a description. */
+export interface AvailableModel {
+  id: string;
+  description: string;
+}
 
 export type ModelsConfig =
   | { status: "disabled" } // key absent / settings unreadable — stay silent
   | { status: "invalid"; message: string } // present but malformed — warn the user
-  | { status: "ok"; models: SubagentModels };
+  | { status: "ok"; models: AvailableModel[] }; // ordered; models[0] is the default
 
 // ---------------------------------------------------------------------------
 // Telemetry

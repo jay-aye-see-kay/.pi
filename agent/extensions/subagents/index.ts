@@ -5,7 +5,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
-import type { SessionTotals, SubStats, Tier } from "./types";
+import type { SessionTotals, SubStats } from "./types";
 import { readSubagentModels } from "./config";
 import { buildPrompt, runSubagent, SESSION_ID_RE } from "./runner";
 import { findSessionDir, openSubagentPicker, stampBranchedFrom } from "./sessions";
@@ -27,9 +27,10 @@ import {
  * enters the main agent's context. Live telemetry (turns / tools / cost) is
  * shown to the human via a TUI widget, not fed to the model.
  *
- * Configuration lives in `subagentModels` (see ./config). If the key is absent
- * the tool is NOT registered (disabled silently, no fallback). If present but
- * malformed, the tool is disabled and the user is warned at session start.
+ * Configuration lives in `subagentModels` (see ./config) — a map of model id to
+ * description, whose first entry is the default. If the key is absent the tool
+ * is NOT registered (disabled silently, no fallback). If present but malformed,
+ * the tool is disabled and the user is warned at session start.
  *
  * Recursion: subagents are spawned with `PI_SUBAGENT=1`, which causes this
  * extension to return early — the subagent tool is never registered inside a
@@ -71,6 +72,16 @@ export default function (pi: ExtensionAPI) {
     return;
   }
   const models = cfg.models;
+  const defaultModel = models[0].id;
+  const modelDescription =
+    `Which model to use (omit for the default: ${defaultModel}). Available:\n` +
+    models.map((m) => `- ${m.id} — ${m.description}`).join("\n");
+  // Constrain `model` to the configured ids (a bare Literal when only one).
+  const modelLiterals = models.map((m) => Type.Literal(m.id));
+  const modelSchema =
+    modelLiterals.length === 1
+      ? Type.Literal(models[0].id, { description: modelDescription })
+      : Type.Union(modelLiterals, { description: modelDescription });
 
   // Reset on each session (new / resume / fork / reload).
   let totals: SessionTotals = { count: 0, cost: 0, turns: 0 };
@@ -117,11 +128,7 @@ Key rule: the subagent can't see this conversation — state the outcome in \`go
       context: Type.String({
         description: `All the information to help the subagent achieve its goal.`,
       }),
-      model: Type.Optional(
-        Type.Union([Type.Literal("small"), Type.Literal("standard"), Type.Literal("reasoning")], {
-          description: `Which model tier to use (leave unset for standard unless you have a reason): 'small' for finding things up, 'reasoning' for hard analysis.`,
-        }),
-      ),
+      model: Type.Optional(modelSchema),
       resume: Type.Optional(
         Type.String({
           description: `Optional. Resume a finished subagent by its id (e.g. 'sub-1a2b3c4d', from a prior result footer) to ask it a follow-up; \`goal\` becomes the follow-up question.
@@ -159,13 +166,13 @@ Key rule: resume to get information not to do work.`,
         mkdirSync(runDir, { recursive: true });
       }
       const sessionId = resumeId ?? `sub-${randomUUID().slice(0, 8)}`;
-      const tier: Tier = params.model ?? "standard";
+      const model = params.model ?? defaultModel;
 
       const outcome = await runSubagent(
         {
           sessionId,
           resuming: Boolean(resumeId),
-          model: models[tier],
+          model,
           prompt: buildPrompt(params.goal, params.context),
           sessionDir: runDir,
           cwd: ctx.cwd,
@@ -216,7 +223,7 @@ Key rule: resume to get information not to do work.`,
     },
 
     renderCall(args, theme) {
-      return renderCall(args, theme);
+      return renderCall(args, defaultModel, theme);
     },
 
     renderResult(result, { expanded, isPartial }, theme, context) {

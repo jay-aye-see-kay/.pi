@@ -1,9 +1,12 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
-import type { SessionTotals, SubStats, Tier, ToolCall } from "./types";
+import type { SessionTotals, SubStats, ToolCall } from "./types";
 
 // All theme/UI logic lives in this module.
+
+/** Strip the provider prefix from a model id: "github-copilot/claude-sonnet-4.6" → "claude-sonnet-4.6". */
+export const shortModel = (id: string): string => id.split("/").pop() ?? id;
 
 export const clip = (s: string, n: number): string => (s.length > n ? s.slice(0, n - 1) + "\u2026" : s);
 
@@ -74,12 +77,16 @@ function callLines(theme: Theme, calls: ToolCall[]): string[] {
   });
 }
 
-export function renderCall(args: { resume?: string; model?: Tier; goal?: string }, theme: Theme): Text {
+export function renderCall(
+  args: { resume?: string; model?: string; goal?: string },
+  defaultModel: string,
+  theme: Theme,
+): Text {
   let head = theme.fg("toolTitle", theme.bold("subagent"));
   const resume = (args.resume ?? "").trim();
   if (resume) head += " " + theme.fg("accent", `\u21bb ${resume}`);
-  const tier = args.model ?? "standard";
-  if (tier !== "standard") head += " " + theme.fg("muted", `[${tier}]`);
+  const model = (args.model ?? "").trim() || defaultModel;
+  head += " " + theme.fg("muted", shortModel(model));
   const goal = (args.goal ?? "").trim().split("\n")[0];
   if (goal) head += " " + theme.fg("dim", clip(goal, 160));
   return new Text(head, 0, 0);
