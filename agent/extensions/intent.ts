@@ -27,9 +27,12 @@ type Mode = "none" | "plan" | "build" | "investigate";
 const MODES: Mode[] = ["none", "investigate", "plan", "build"];
 
 const MODE_TEXT: Record<Exclude<Mode, "none">, string> = {
-  investigate: "INVESTIGATE: focus on understanding not solutions",
-  plan: "PLAN: think through approach and tradeoffs, don't write or edit code yet",
-  build: "BUILD: bias for action, if you have a clear understanding of the task, just do it",
+  investigate:
+    "INVESTIGATE: Focus on understanding, not solutions. Even if asked to fix, build, or plan - only investigate.",
+  plan:
+    "PLAN: Think through approach and tradeoffs. Do NOT write or edit code this turn, even if the request sounds like a build instruction.",
+  build:
+    "BUILD: Bias for action. If you have a clear understanding of the task, just do it.",
 };
 
 export default function intentExtension(pi: ExtensionAPI): void {
