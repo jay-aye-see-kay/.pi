@@ -209,9 +209,9 @@ function buildPrompt(goal: string, context: string): string {
     context.trim(),
     "## Environment and Sandbox",
     "You are a resumable subagent running in a sandbox. " +
-      "The sandbox has been set up to keep out of your way, but nothing is perfect. " +
-      "Stop and describe the problem with your environment if you are blocked, so that " +
-      "it can be passed back to the user to be fixed.",
+    "The sandbox has been set up to keep out of your way, but nothing is perfect. " +
+    "Stop and describe the problem with your environment if you are blocked, so that " +
+    "it can be passed back to the user to be fixed.",
   ].join("\n\n");
 }
 
