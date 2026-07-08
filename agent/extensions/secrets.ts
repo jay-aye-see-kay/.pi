@@ -11,8 +11,8 @@
 //   org policy might be 366 days or less for a token, or it won't work
 //   select all repo+org permissions, then remove the ones that say read+write
 //
-// Store then token
-//   security add-generic-password -U -a "$USER" -s pi-github-token -w '<scoped PAT>'
+// Store then token (will ask interactively)
+//   security add-generic-password -U -a "$USER" -s pi-github-token -w
 // 
 // Map: env var name -> keychain generic-password service name.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
