@@ -1,0 +1,34 @@
+# Pi agent sandbox git config, pointed to by GIT_CONFIG_GLOBAL (set in
+# agent/extensions/secrets.ts). Standalone by design: the system config at
+# ~/.config/git/config is intentionally NOT included, so no aliases, nix
+# pager paths, or the personal https->ssh rewrite leak into agent sessions.
+#
+# Auth is https + the read/write PAT via gh's credential helper, so git never
+# needs ~/.ssh (which stays blocked in the sandbox). The [url] block rewrites
+# ssh remotes to https so repos cloned with git@github.com: URLs still work.
+#
+# Commits: author = user below; committer = pi (via GIT_COMMITTER_* env).
+
+[user]
+	name = Jack Rose
+	email = user@jackrose.co.nz
+
+[credential "https://github.com"]
+	# Empty value first resets any inherited helpers (the system gitconfig sets
+	# credential.helper=osxkeychain, which can't write to the sandbox-blocked
+	# keychain and prints a harmless-but-noisy `failed to store` error).
+	helper = ""
+	helper = !gh auth git-credential
+
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+	insteadOf = ssh://git@github.com/
+
+[core]
+	pager = cat
+
+[init]
+	defaultBranch = main
+
+[push]
+	default = current

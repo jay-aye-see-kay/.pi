@@ -17,14 +17,10 @@
 // Map: env var name -> keychain generic-password service name.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
+import { join } from "node:path";
 
 const SECRETS: Record<string, string> = {
   GITHUB_TOKEN: "pi-github-token",
-  // Write-scoped PAT for `hotel lobby` (Contents:write on cultureamp/hotel-lobby
-  // only). Injected under its own var, NOT GH_TOKEN/GITHUB_TOKEN, so the global
-  // read-only guardrail stays intact. Elevate per-call with:
-  //   GH_TOKEN="$HOTEL_LOBBY_GH_TOKEN" hotel lobby add <file>
-  HOTEL_LOBBY_GH_TOKEN: "pi-github-lobby-token",
 };
 
 function readKeychain(service: string): string | undefined {
@@ -46,4 +42,11 @@ export default function (_pi: ExtensionAPI) {
     const value = readKeychain(service);
     if (value) process.env[envVar] = value;
   }
+
+  // Point git at a standalone sandbox config (https + gh credential helper, no
+  // ~/.ssh needed) and attribute commits to the agent as committer while the
+  // human above stays the author. `??=` so launch-time overrides win.
+  process.env.GIT_CONFIG_GLOBAL ??= join(import.meta.dirname, "../gitconfig");
+  process.env.GIT_COMMITTER_NAME ??= "pi";
+  process.env.GIT_COMMITTER_EMAIL ??= "pi@jackrose.co.nz";
 }
