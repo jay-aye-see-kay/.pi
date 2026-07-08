@@ -7,13 +7,16 @@
  * before_agent_start). No tool restrictions - purely a prompt nudge.
  *
  * Metadata:
- *   mode - none | plan | build | investigate (how to work)
+ *   mode - none | investigate | brainstorm | plan | build (how to work)
  *   goal - free-text north star for the session (what we're after)
+ *
+ * Each mode also nudges the thinking level (on models that support it;
+ * no-op otherwise): investigate/plan -> high, none/brainstorm/build -> medium.
  *
  * Usage:
  *   /mode              - open a selector
- *   /mode plan         - set directly (also: build, investigate, none)
- *   shift+tab          - cycle none -> investigate -> plan -> build -> none
+ *   /mode plan         - set directly (also: build, investigate, brainstorm, none)
+ *   shift+tab          - cycle none -> investigate -> brainstorm -> plan -> build -> none
  *   /goal              - prompt for a goal (empty clears it)
  *   /goal ship the CLI - set directly
  *   /goal clear        - clear the goal
@@ -22,18 +25,40 @@
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-type Mode = "none" | "plan" | "build" | "investigate";
+type Mode = "none" | "investigate" | "brainstorm" | "plan" | "build";
+type ThinkingLevel = "medium" | "high";
 
-const MODES: Mode[] = ["none", "investigate", "plan", "build"];
+const MODES: Mode[] = ["none", "investigate", "brainstorm", "plan", "build"];
 
 const MODE_TEXT: Record<Exclude<Mode, "none">, string> = {
   investigate:
     "INVESTIGATE: Focus on understanding, not solutions. Even if asked to fix, build, or plan - only investigate.",
+  brainstorm:
+    "BRAINSTORM: Explore ideas and possibilities freely. Generate and weigh multiple options; don't commit to code or a single plan yet.",
   plan:
     "PLAN: Think through approach and tradeoffs. Do NOT write or edit code this turn, even if the request sounds like a build instruction.",
   build:
     "BUILD: Bias for action. If you have a clear understanding of the task, just do it.",
 };
+
+// Thinking level to apply per mode (on models that support it; no-op otherwise).
+const MODE_THINKING: Record<Mode, ThinkingLevel> = {
+  none: "medium",
+  investigate: "high",
+  brainstorm: "medium",
+  plan: "high",
+  build: "medium",
+};
+
+// A level is supported unless the model can't reason, or explicitly maps it to null.
+function supportsThinkingLevel(
+  model: ExtensionContext["model"],
+  level: ThinkingLevel,
+): boolean {
+  if (!model?.reasoning) return false;
+  if (model.thinkingLevelMap?.[level] === null) return false;
+  return true;
+}
 
 export default function intentExtension(pi: ExtensionAPI): void {
   let mode: Mode = "none";
@@ -52,6 +77,8 @@ export default function intentExtension(pi: ExtensionAPI): void {
     mode = next;
     updateStatus(ctx);
     persist();
+    const level = MODE_THINKING[next];
+    if (supportsThinkingLevel(ctx.model, level)) pi.setThinkingLevel(level);
     ctx.ui.notify(mode === "none" ? "Mode: none" : `Mode: ${mode}`, "info");
   }
 
@@ -63,7 +90,7 @@ export default function intentExtension(pi: ExtensionAPI): void {
   }
 
   pi.registerCommand("mode", {
-    description: "Set or cycle mode (none/plan/build/investigate)",
+    description: "Set or cycle mode (none/investigate/brainstorm/plan/build)",
     getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
       const items = MODES.map((m) => ({ value: m, label: m }));
       const filtered = items.filter((i) => i.value.startsWith(prefix));
@@ -101,7 +128,7 @@ export default function intentExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerShortcut("shift+tab", {
-    description: "Cycle mode (none/plan/build/investigate)",
+    description: "Cycle mode (none/investigate/brainstorm/plan/build)",
     handler: async (ctx) => {
       const next = MODES[(MODES.indexOf(mode) + 1) % MODES.length] ?? "none";
       setMode(next, ctx);
