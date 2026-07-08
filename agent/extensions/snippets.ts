@@ -1,11 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const SNIPPETS: Record<string, string> = {
-  tdd: "use red/green TDD: write a failing test first, then the minimal code to make it pass, then refactor",
+  ["23"]: "give me 2-3 options",
+  brief: "keep it brief: bullet points, focus on the why, no preamble",
   fix: "identify the root cause, explain it, then provide the fix with a brief justification",
-  review: "review this code for correctness, performance, and readability; suggest specific improvements",
-  todo: "find all TODO and FIXME comments and address them one by one",
-  doc: "add clear, concise documentation comments to the following code",
+  kiss: "keep it simple: pick the most straightforward approach, we can improve later if needed",
+  pat: "look at how similar things are already done in this codebase and follow that pattern",
+  sand: "this is a sandbox issue that shouldn't be there, stop the current task and focus only on adjusting the sandbox",
+  sub: "use a subagent for this",
+  tdd: "use red/green TDD: write a failing test first, then the minimal code to make it pass, then refactor",
 };
 
 export default function (pi: ExtensionAPI) {
