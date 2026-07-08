@@ -53,5 +53,5 @@ export default function (_pi: ExtensionAPI) {
   // human above stays the author. `??=` so launch-time overrides win.
   process.env.GIT_CONFIG_GLOBAL ??= join(import.meta.dirname, "../gitconfig");
   process.env.GIT_COMMITTER_NAME ??= "pi";
-  process.env.GIT_COMMITTER_EMAIL ??= "pi@jackrose.co.nz";
+  process.env.GIT_COMMITTER_EMAIL ??= "pi-agent@jackrose.co.nz";
 }
