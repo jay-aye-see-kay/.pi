@@ -20,6 +20,16 @@
 	helper = ""
 	helper = !gh auth git-credential
 
+# Personal repos use a personal-account PAT instead of the cultureamp token.
+# useHttpPath makes git match on the repo path, so this only applies to
+# github.com/jay-aye-see-kay/*. The empty reset drops the general gh helper
+# above (which would otherwise return the cultureamp token first and win);
+# then we re-run gh with GH_TOKEN overridden to the personal PAT.
+[credential "https://github.com/jay-aye-see-kay"]
+	useHttpPath = true
+	helper = ""
+	helper = !GH_TOKEN=$GITHUB_PERSONAL_TOKEN gh auth git-credential
+
 [url "https://github.com/"]
 	insteadOf = git@github.com:
 	insteadOf = ssh://git@github.com/

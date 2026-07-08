@@ -21,6 +21,11 @@ import { join } from "node:path";
 
 const SECRETS: Record<string, string> = {
   GITHUB_TOKEN: "pi-github-token",
+  // Personal-account PAT (jay-aye-see-kay repos, e.g. this ~/.pi repo). Kept in
+  // its own var, NOT GH_TOKEN/GITHUB_TOKEN, so it only surfaces via the
+  // path-scoped git credential helper in agent/gitconfig for
+  // github.com/jay-aye-see-kay/* remotes. gh's default stays the cultureamp token.
+  GITHUB_PERSONAL_TOKEN: "pi-github-personal-token",
 };
 
 function readKeychain(service: string): string | undefined {
