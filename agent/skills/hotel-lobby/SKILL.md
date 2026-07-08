@@ -11,8 +11,12 @@ Upload an HTML or Markdown file to a private (to CultureAmp org) GitHub Pages si
 
 ## Usage
 
+The default `GITHUB_TOKEN` in this sandbox is read-only, so `hotel lobby`
+(which writes to cultureamp/hotel-lobby via `gh auth token`) must be run with
+the write-scoped token injected as `GH_TOKEN` for that one call:
+
 ```bash
-hotel lobby add <filename> [flags]
+GH_TOKEN="$HOTEL_LOBBY_GH_TOKEN" hotel lobby add <filename> [flags]
 ```
 
 Flags:
@@ -22,9 +26,9 @@ Flags:
 ## Examples
 
 ```bash
-hotel lobby add report.html
-hotel lobby add plan.md --description "plan for implementing ABC-456"
-hotel lobby add plan.md --description="draft 2" --tags="TIK-123,health"
+GH_TOKEN="$HOTEL_LOBBY_GH_TOKEN" hotel lobby add report.html
+GH_TOKEN="$HOTEL_LOBBY_GH_TOKEN" hotel lobby add plan.md --description "plan for implementing ABC-456"
+GH_TOKEN="$HOTEL_LOBBY_GH_TOKEN" hotel lobby add plan.md --description="draft 2" --tags="TIK-123,health"
 ```
 
 ## Notes

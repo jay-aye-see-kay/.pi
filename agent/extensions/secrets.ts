@@ -20,6 +20,11 @@ import { execFileSync } from "node:child_process";
 
 const SECRETS: Record<string, string> = {
   GITHUB_TOKEN: "pi-github-token",
+  // Write-scoped PAT for `hotel lobby` (Contents:write on cultureamp/hotel-lobby
+  // only). Injected under its own var, NOT GH_TOKEN/GITHUB_TOKEN, so the global
+  // read-only guardrail stays intact. Elevate per-call with:
+  //   GH_TOKEN="$HOTEL_LOBBY_GH_TOKEN" hotel lobby add <file>
+  HOTEL_LOBBY_GH_TOKEN: "pi-github-lobby-token",
 };
 
 function readKeychain(service: string): string | undefined {
