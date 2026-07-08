@@ -10,6 +10,7 @@ description: Search, read, and send Slack messages via mcporter CLI. Use for "fi
 | You want to… | Move |
 |---|---|
 | Find when **I** said X | `search_public_and_private query="from:me X"` |
+| **What's waiting on me** today | see [daily triage](references/searching.md#daily-triage) |
 | Any conversation about X | `search_public_and_private query="X"` |
 | Context from a Slack **link** | parse link → `read_thread` |
 | Message a person/team | resolve ID → `send_message_draft` |
@@ -25,6 +26,6 @@ Details: [searching](references/searching.md) · [sending](references/sending.md
 
 ## Common IDs
 
-Me (Jack): `U010S548P0F`. Channels (private): #wol_devex `C02NUQ65U2C` · #team_hotel `C0B97KTKH25` · #team_agentic_engineering `C0BAJEK3HH8`. Shay `U09UM9ZC6NN` · Felicity `U0ADQP9DSNS` · Elliott `UFMU99PCG`. Others → [directory](references/directory.md).
+Me (Jack): `U010S548P0F`. Ignore bot senders when triaging: Camper Portal Bot, Jira, Slackbot, agent-orchestrator (`U0B52APG03E`). Channels (private): #wol_devex `C02NUQ65U2C` · #team_hotel `C0B97KTKH25` · #team_agentic_engineering `C0BAJEK3HH8`. Shay `U09UM9ZC6NN` · Felicity `U0ADQP9DSNS` · Elliott `UFMU99PCG`. Others → [directory](references/directory.md).
 
 Send: `mcporter call slack.slack_send_message_draft channel_id=C… message="…"` (DM = user_id as channel_id). No Block Kit. Full tool list: `mcporter list slack`.
