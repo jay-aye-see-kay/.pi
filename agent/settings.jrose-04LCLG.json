@@ -7,7 +7,7 @@
   "enabledModels": [
     "github-copilot/claude-opus-4.8",
     "github-copilot/claude-sonnet-4.6",
-    "anthropic/claude-sonnet-5"
+    "anthropic/claude-fable-5"
   ],
   "subagentModels": {
     "github-copilot/claude-sonnet-4.6": "good all-round model, the default choice",
