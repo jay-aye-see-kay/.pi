@@ -1,6 +1,6 @@
 ---
 name: slack-messaging
-description: Search, read, and send Slack messages via mcporter CLI. Use for "find when I said X on slack", "any conversation about X", "message <person/team> about X", "respond to this thread <link>", or getting context from a Slack link.
+description: Search, read, and send Slack messages via mcporter CLI. Use for "find when I said X on slack", "any conversation about X", "message <person/team> about X", "send to #channel" (a leading # usually means a Slack channel), "respond to this thread <link>", or getting context from a Slack link.
 only-on-hosts: ["jrose-04LCLG"]
 ---
 
@@ -15,6 +15,7 @@ only-on-hosts: ["jrose-04LCLG"]
 | Any conversation about X | `search_public_and_private query="X"` |
 | Context from a Slack **link** | parse link → `read_thread` |
 | Message a person/team | resolve ID → `send_message_draft` |
+| Send to **#channel** (leading # = channel name) | resolve channel ID → `send_message_draft` |
 | Reply to a thread **link** | parse link → `send_message thread_ts=…` |
 | Find a **channel ID** by name | `search_channels query="name" response_format=concise` |
 
