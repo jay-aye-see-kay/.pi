@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "buildkite-readonly": {
-      "url": "https://mcp.buildkite.com/mcp/readonly",
-      "auth": "oauth"
-    }
-  }
-}
