@@ -1,6 +1,15 @@
 {
   "$schema": "https://raw.githubusercontent.com/steipete/mcporter/main/mcporter.schema.json",
   "mcpServers": {
+    "hotel": {
+      "description": "Hotel MCP — Culture Amp internal/company docs (keep-alive: corpus loads async ~10s on first start)",
+      "command": "hotel",
+      "args": ["mcp-server"],
+      "lifecycle": "keep-alive",
+      "env": {
+        "HOTEL_GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
     "exa": {
       "description": "Exa hosted MCP — web search and page fetch",
       "baseUrl": "https://mcp.exa.ai/mcp"

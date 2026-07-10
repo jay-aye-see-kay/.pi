@@ -1,10 +1,5 @@
 {
   "mcpServers": {
-    "hotel-mcp": {
-      "command": "hotel",
-      "args": ["mcp-server"],
-      "lifecycle": "lazy"
-    },
     "buildkite-readonly": {
       "url": "https://mcp.buildkite.com/mcp/readonly",
       "auth": "oauth"
