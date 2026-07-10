@@ -16,6 +16,7 @@ only-on-hosts: ["jrose-04LCLG"]
 | Context from a Slack **link** | parse link → `read_thread` |
 | Message a person/team | resolve ID → `send_message_draft` |
 | Reply to a thread **link** | parse link → `send_message thread_ts=…` |
+| Find a **channel ID** by name | `search_channels query="name" response_format=concise` |
 
 Details: [searching](references/searching.md) · [sending](references/sending.md) · [formatting](references/formatting.md) · [directory](references/directory.md).
 
@@ -28,5 +29,7 @@ Details: [searching](references/searching.md) · [sending](references/sending.md
 ## Common IDs
 
 Me (Jack): `U010S548P0F`. Ignore bot senders when triaging: Camper Portal Bot, Jira, Slackbot, agent-orchestrator (`U0B52APG03E`). Channels (private): #wol_devex `C02NUQ65U2C` · #team_hotel `C0B97KTKH25` · #team_agentic_engineering `C0BAJEK3HH8`. Shay `U09UM9ZC6NN` · Felicity `U0ADQP9DSNS` · Elliott `UFMU99PCG`. Others → [directory](references/directory.md).
+
+Resolve a channel name → ID (needed before sending): `mcporter call slack.slack_search_channels query="learn_ai_agents" response_format=concise` → `#learn_ai_agents (C07318DS6MV)`. Add `channel_types=public_channel,private_channel` for private ones.
 
 Send: `mcporter call slack.slack_send_message_draft channel_id=C… message="…"` (DM = user_id as channel_id). No Block Kit. Full tool list: `mcporter list slack`.
