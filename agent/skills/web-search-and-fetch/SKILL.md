@@ -7,12 +7,12 @@ description: Search the web and fetch page content. Use when user wants to searc
 
 ```bash
 # Web search — returns clean text/highlights from top results
-mcporter call 'https://mcp.exa.ai/mcp' web_search_exa \
+mcporter call exa.web_search_exa \
   query="blog post comparing React and Vue performance" \
   numResults=5
 
 # Fetch full page content as markdown (batch multiple URLs)
-mcporter call 'https://mcp.exa.ai/mcp' web_fetch_exa \
+mcporter call exa.web_fetch_exa \
   urls='["https://example.com/a", "https://example.com/b"]' \
   maxCharacters=5000
 ```
