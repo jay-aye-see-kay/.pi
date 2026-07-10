@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/steipete/mcporter/main/mcporter.schema.json",
+  "mcpServers": {
+    "exa": {
+      "description": "Exa hosted MCP — web search and page fetch",
+      "baseUrl": "https://mcp.exa.ai/mcp"
+    },
+    "slack": {
+      "description": "Slack hosted MCP (pre-registered OAuth client)",
+      "baseUrl": "https://mcp.slack.com/mcp",
+      "auth": "oauth",
+      "oauthClientId": "1601185624273.8899143856786",
+      "oauthRedirectUrl": "http://localhost:3118/callback"
+    }
+  }
+}
