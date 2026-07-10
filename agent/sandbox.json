@@ -99,6 +99,7 @@
       "~/Library/Caches",
       "~/Library/pnpm",
       "~/go",
+      "~/hotel",
       "~/tmp"
     ],
     "denyWrite": [
