@@ -38,6 +38,15 @@ mcporter call glean.employee_search query="Jane Doe"
 - Matches on people **attributes** (name/title/department/location), NOT skills or projects — for "who works on <tech/project>" use `chat` or `search`.
 - For "who does X report to", look X up and read the `manager` field — don't use `reportsto:` for that.
 
+### employee_search gotchas (learned the hard way)
+
+- **Don't combine a department/title keyword with `startafter:`** — e.g. `engineering startafter:2026-05-10` returns ZERO results even when such people exist. The keyword filter and date filter conflict. There is also no working `department:` prefix. Instead: run `startafter:Y sortby:hire_date_descending` **without** the keyword, then filter by the `department:` field in the results. Confirm with a keyword-only query (`"<dept name>" sortby:hire_date_descending`, no date filter).
+- **Results are silently capped (~16 shown).** The `statistics[]` block at the bottom gives the true total (e.g. `datasource=people: 21`) and `peopleNotShown: notShownCount: N` shows how many are hidden. `cursor=` and `pageSize=` are **ignored** — you cannot paginate past the cap. Workaround: split the date range into narrower windows (`startafter:X startbefore:Y`) to force different slices. Plan 2–3 queries for a multi-month range.
+- **"Engineering" is fragmented into sub-departments** that a keyword for "Engineering" won't match: Engineering, Site Reliability Engineering, Data & Machine Learning Engineering, Security Infrastructure, Data Science, Data Analytics, Tech Delivery. Decide upfront which count, and filter on the `department:` field after retrieval.
+- **Parsing trap:** each person record contains a nested `manager:` sub-block (and `directReports[]` for managers) with the SAME field names (name/email/startDate/title/department). Naïve grep/regex will silently pull manager data. Only read the top-level person fields; skip everything inside `manager:`/`directReports[]`.
+- **`statistics[]` collapses rare depts into `department=other`** — absence from the facet breakdown does NOT mean no such hires. Always check `peopleNotShown` and use date-window splitting when it's > 0.
+- **`datasourceToProfileLink`** lists connectors (SLACK, JIRA, SALESFORCE) in no guaranteed order — don't assume SLACK is first; match on the connector name.
+
 ## When to use subagent
 
 Offload most use of glean to a subagent to prevent context pollution.
