@@ -13,7 +13,14 @@
 //
 // Store then token (will ask interactively)
 //   security add-generic-password -U -a "$USER" -s pi-github-token -w
-// 
+//
+// For BUILDKITE_API_TOKEN: create a read-only Buildkite API access token at
+//   https://buildkite.com/user/api-access-tokens (scope to culture-amp, pick
+//   only read REST/GraphQL scopes), then store it:
+//   security add-generic-password -U -a "$USER" -s pi-buildkite-token -w
+// bk reads BUILDKITE_API_TOKEN directly (highest precedence), so this works
+// even though the sandbox can't reach bk's own keyring credential store.
+//
 // Map: env var name -> keychain generic-password service name.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
@@ -26,6 +33,7 @@ const SECRETS: Record<string, string> = {
   // path-scoped git credential helper in agent/gitconfig for
   // github.com/jay-aye-see-kay/* remotes. gh's default stays the cultureamp token.
   GITHUB_PERSONAL_TOKEN: "pi-github-personal-token",
+  BUILDKITE_API_TOKEN: "pi-buildkite-token",
 };
 
 function readKeychain(service: string): string | undefined {
