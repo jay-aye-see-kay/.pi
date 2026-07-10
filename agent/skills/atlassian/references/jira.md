@@ -9,7 +9,8 @@ Common operations (view, search, create, edit, comment, worklog, transition) liv
 
 ```bash
 mcporter call atlassian.lookupJiraAccountId \
-  cloudId=cultureamp.atlassian.net searchString="Jack Rose"
+  cloudId=cultureamp.atlassian.net searchString="Jack Rose" \
+  | jq -r '.data.users.users[] | [.accountId, .displayName] | @tsv'
 
 # Then assign via editJiraIssue
 mcporter call atlassian.editJiraIssue \
@@ -52,7 +53,8 @@ mcporter call atlassian.editJiraIssue \
 ## Issue links
 
 ```bash
-mcporter call atlassian.getIssueLinkTypes cloudId=cultureamp.atlassian.net
+mcporter call atlassian.getIssueLinkTypes cloudId=cultureamp.atlassian.net \
+  | jq -r '.issueLinkTypes[] | [.name, .inward, .outward] | @tsv'
 
 # Directional: inwardIssue is the blocker, outwardIssue is the blocked one
 # "FEF-1 blocks FEF-2" → inwardIssue=FEF-1, outwardIssue=FEF-2
@@ -64,17 +66,21 @@ mcporter call atlassian.createIssueLink \
 ## Fetching more / custom fields
 
 ```bash
-# All fields including custom fields
+# All fields including custom fields — jq out just the ones you need
 mcporter call atlassian.getJiraIssue \
-  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 fields='["*all"]'
+  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 fields='["*all"]' \
+  | jq '.fields | {priority: .priority.name, labels, sprint: .customfield_10020}'
 
-# Include comments in a search/get
+# Include comments in a get
 mcporter call atlassian.getJiraIssue \
-  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 fields='["comment"]'
+  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 fields='["comment"]' \
+  | jq -r '.fields.comment.comments[] | "\(.author.displayName): \(.body)"'
 
 # Limit search results / paginate
 mcporter call atlassian.searchJiraIssuesUsingJql \
-  cloudId=cultureamp.atlassian.net jql='project = FEF' maxResults=20
+  cloudId=cultureamp.atlassian.net jql='project = FEF' \
+  fields='["summary","status"]' maxResults=20 \
+  | jq -r '.issues[] | [.key, .fields.status.name, .fields.summary] | @tsv'
 # The response includes nextPageToken; pass it back as nextPageToken=... for the next page.
 ```
 
@@ -110,9 +116,10 @@ mcporter call atlassian.addCommentToJiraIssue \
 
 # 4. Transition to Done
 mcporter call atlassian.getTransitionsForJiraIssue \
-  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611
+  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 \
+  | jq -r '.transitions[] | [.id, .name] | @tsv'
 mcporter call atlassian.transitionJiraIssue \
-  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 transition='{"id":"DONE_ID"}'
+  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 transition='{"id":"DONE_ID"}' | jq '.success'
 ```
 
 ### FEF project components

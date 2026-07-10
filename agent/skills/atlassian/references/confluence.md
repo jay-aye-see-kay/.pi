@@ -7,11 +7,13 @@ Common operations (search, get, create, update) live in the main `SKILL.md`.
 
 ```bash
 # List spaces
-mcporter call atlassian.getConfluenceSpaces cloudId=cultureamp.atlassian.net
+mcporter call atlassian.getConfluenceSpaces cloudId=cultureamp.atlassian.net \
+  | jq -r '.results[] | [.key, .id, .name] | @tsv'
 
 # Pages in a space
 mcporter call atlassian.getPagesInConfluenceSpace \
-  cloudId=cultureamp.atlassian.net spaceId=12345 contentFormat=markdown
+  cloudId=cultureamp.atlassian.net spaceId=12345 \
+  | jq -r '.results[]? | [.id, .title] | @tsv'
 ```
 
 ## Page trees
@@ -19,7 +21,8 @@ mcporter call atlassian.getPagesInConfluenceSpace \
 ```bash
 # Direct child pages of a page
 mcporter call atlassian.getConfluencePageDescendants \
-  cloudId=cultureamp.atlassian.net pageId=123456
+  cloudId=cultureamp.atlassian.net pageId=123456 \
+  | jq -r '.results[]? | [.id, .title] | @tsv'
 ```
 
 ## Comments
@@ -27,11 +30,13 @@ mcporter call atlassian.getConfluencePageDescendants \
 ```bash
 # Read footer comments
 mcporter call atlassian.getConfluencePageFooterComments \
-  cloudId=cultureamp.atlassian.net pageId=123456
+  cloudId=cultureamp.atlassian.net pageId=123456 \
+  | jq -r '.results[]? | {id, body}'
 
 # Read inline comments
 mcporter call atlassian.getConfluencePageInlineComments \
-  cloudId=cultureamp.atlassian.net pageId=123456
+  cloudId=cultureamp.atlassian.net pageId=123456 \
+  | jq -r '.results[]? | {id, body}'
 
 # Read replies to a comment
 mcporter call atlassian.getConfluenceCommentChildren \
@@ -39,7 +44,7 @@ mcporter call atlassian.getConfluenceCommentChildren \
 
 # Create a footer comment
 mcporter call atlassian.createConfluenceFooterComment \
-  cloudId=cultureamp.atlassian.net pageId=123456 body="Thanks, updated." contentFormat=markdown
+  cloudId=cultureamp.atlassian.net pageId=123456 body="Thanks, updated." contentFormat=markdown | jq -r '.id'
 
 # Create an inline comment anchored to specific text
 mcporter call atlassian.createConfluenceInlineComment \
@@ -63,7 +68,8 @@ title ~ "keyword" AND space = SPACEKEY AND type = page
 
 ```bash
 # Rovo search across both Jira and Confluence
-mcporter call atlassian.search cloudId=cultureamp.atlassian.net query="deploy rollback"
+mcporter call atlassian.search cloudId=cultureamp.atlassian.net query="deploy rollback" \
+  | jq -r '.results[]? | [.id, .title] | @tsv'
 
 # Fetch a Jira issue or Confluence page by URL/ID
 mcporter call atlassian.fetch cloudId=cultureamp.atlassian.net id="https://cultureamp.atlassian.net/wiki/..."
