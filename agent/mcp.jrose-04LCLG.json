@@ -12,10 +12,6 @@
     "buildkite-readonly": {
       "url": "https://mcp.buildkite.com/mcp/readonly",
       "auth": "oauth"
-    },
-    "glean": {
-      "url": "https://culture-amp-be.glean.com/mcp/default",
-      "auth": "oauth"
     }
   }
 }

@@ -11,6 +11,11 @@
       "auth": "oauth",
       "oauthClientId": "1601185624273.8899143856786",
       "oauthRedirectUrl": "http://localhost:3118/callback"
+    },
+    "glean": {
+      "description": "Glean hosted MCP (Culture Amp)",
+      "baseUrl": "https://culture-amp-be.glean.com/mcp/default",
+      "auth": "oauth"
     }
   }
 }

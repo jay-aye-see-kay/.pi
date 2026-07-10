@@ -33,7 +33,8 @@
       "*.awsapps.com",
       "*.anthropic.com",
       "mcp.slack.com",
-      "mcp.exa.ai"
+      "mcp.exa.ai",
+      "culture-amp-be.glean.com"
     ],
     "deniedDomains": []
   },
