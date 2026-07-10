@@ -1,6 +1,8 @@
 ---
 name: subagents
 description: Delegate self-contained work to isolated `pi` subagents by calling the pi CLI through bash. Use to keep big/noisy work out of your context — search & locate, explore & explain, summarize a large artifact, scoped grunt work, or a fresh second opinion. Run several in parallel and merge.
+disable-model-invocation: true
+only-on-hosts: []
 ---
 
 # Subagents via the `pi` CLI

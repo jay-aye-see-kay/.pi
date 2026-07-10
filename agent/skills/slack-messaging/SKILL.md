@@ -1,6 +1,7 @@
 ---
 name: slack-messaging
 description: Search, read, and send Slack messages via mcporter CLI. Use for "find when I said X on slack", "any conversation about X", "message <person/team> about X", "respond to this thread <link>", or getting context from a Slack link.
+only-on-hosts: ["jrose-04LCLG"]
 ---
 
 # Slack via mcporter

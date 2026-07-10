@@ -1,6 +1,7 @@
 ---
 name: glean
 description: Search Culture Amp company knowledge (Confluence, Jira, Slack, GDrive, Gmail, Notion…) and ask the Glean AI assistant via mcporter CLI. Use for internal/company info, docs, tickets, "what do we know about X", or people/org lookups ("who is…", "who works on…", "who reports to…", org chart).
+only-on-hosts: ["jrose-04LCLG"]
 ---
 
 ## Quick reference

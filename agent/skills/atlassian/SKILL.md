@@ -1,6 +1,7 @@
 ---
 name: atlassian
 description: Query and manage Jira and Confluence via the mcporter atlassian MCP. Use when the user mentions Jira (epics, issues, tickets, bugs, stories, tasks, sprints) or Confluence (wiki, pages, docs, spaces).
+only-on-hosts: ["jrose-04LCLG"]
 ---
 
 # Atlassian (Jira + Confluence) via mcporter

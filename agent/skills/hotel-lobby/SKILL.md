@@ -1,6 +1,7 @@
 ---
 name: hotel-lobby
 description: Upload an HTML or Markdown file to a private GitHub Pages site via the hotel CLI. Use when user wants to upload/share a file to the lobby.
+only-on-hosts: ["jrose-04LCLG"]
 ---
 
 # Hotel Lobby Upload

@@ -1,6 +1,7 @@
 ---
 name: buildkite
 description: Inspect Culture Amp Buildkite pipelines from the CLI via the `bk` tool — list recent/failed builds, read job logs to find why a build failed, and list/download build artifacts. Use for "why did this build fail", "find failed runs", "get the logs for build X", or "download the artifacts".
+only-on-hosts: ["jrose-04LCLG"]
 ---
 
 ## Auth

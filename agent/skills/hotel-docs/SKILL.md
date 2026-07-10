@@ -1,6 +1,7 @@
 ---
 name: hotel-docs
 description: Search Culture Amp internal/company engineering knowledge via the hotel MCP (mcporter CLI) — package & API docs, Kaizen components, engineering standards, tech radar, and the DX Insights Metabase. Use for "how do we do X at Culture Amp", CA package/API usage, Kaizen UI components, "what's our standard for…", "is <tech> adopt/retire", or internal DX metrics.
+only-on-hosts: ["jrose-04LCLG"]
 ---
 
 ## Quick reference
