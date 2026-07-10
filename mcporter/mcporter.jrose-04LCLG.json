@@ -16,6 +16,11 @@
       "description": "Glean hosted MCP (Culture Amp)",
       "baseUrl": "https://culture-amp-be.glean.com/mcp/default",
       "auth": "oauth"
+    },
+    "atlassian": {
+      "description": "Atlassian hosted MCP — Jira and Confluence (Culture Amp)",
+      "baseUrl": "https://mcp.atlassian.com/v1/mcp",
+      "auth": "oauth"
     }
   }
 }
