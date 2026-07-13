@@ -6,12 +6,12 @@
   "defaultThinkingLevel": "medium",
   "enabledModels": [
     "github-copilot/claude-opus-4.8",
+    "github-copilot/kimi-k2.7-code",
     "github-copilot/claude-sonnet-4.6",
     "anthropic/claude-fable-5"
   ],
   "subagentModels": {
-    "github-copilot/claude-sonnet-4.6": "good all-round model, the default choice",
-    "github-copilot/claude-haiku-4.5": "fast and cheap, use for finding things and simple grunt work",
+    "github-copilot/kimi-k2.7-code": "good fast all-rounder, the workhorse",
     "github-copilot/claude-opus-4.8": "slower and more expensive but great for hard problems and reasoning"
   },
   "skills": [
