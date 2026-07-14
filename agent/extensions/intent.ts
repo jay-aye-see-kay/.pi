@@ -43,7 +43,6 @@ const MODE_TEXT: Record<Exclude<Mode, "none">, string> = {
 const MODE_THINKING: Record<Mode, ThinkingLevel> = {
   none: "medium",
   investigate: "high",
-  brainstorm: "medium",
   plan: "high",
   build: "medium",
 };
