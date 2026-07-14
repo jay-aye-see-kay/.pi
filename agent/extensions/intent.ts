@@ -25,16 +25,14 @@
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-type Mode = "none" | "investigate" | "brainstorm" | "plan" | "build";
+type Mode = "none" | "investigate" | "plan" | "build";
 type ThinkingLevel = "medium" | "high";
 
-const MODES: Mode[] = ["none", "investigate", "brainstorm", "plan", "build"];
+const MODES: Mode[] = ["none", "investigate", "plan", "build"];
 
 const MODE_TEXT: Record<Exclude<Mode, "none">, string> = {
   investigate:
     "INVESTIGATE: Focus on understanding, not solutions. Even if asked to fix, build, or plan - only investigate.",
-  brainstorm:
-    "BRAINSTORM: Explore ideas and possibilities freely. Generate and weigh multiple options; don't commit to code or a single plan yet.",
   plan:
     "PLAN: Think through approach and tradeoffs. Do NOT write or edit code this turn, even if the request sounds like a build instruction.",
   build:
