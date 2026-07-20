@@ -8,3 +8,4 @@ node_modules
 *.log
 /agent/settings.json
 /agent/mcp.json
+/agent/models-store.json
