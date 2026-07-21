@@ -13,8 +13,5 @@
     "github-copilot/claude-haiku-4.5": "fast and cheap, use for finding things and simple grunt work",
     "github-copilot/claude-opus-4.8": "slower and more expensive but great for hard problems and reasoning"
   },
-  "packages": [
-    "npm:pi-sandbox"
-  ],
   "quietStartup": true
 }

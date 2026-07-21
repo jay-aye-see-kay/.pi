@@ -17,9 +17,6 @@
   "skills": [
     "~/.claude/skills"
   ],
-  "packages": [
-    "npm:pi-sandbox"
-  ],
   "quietStartup": true,
   "env": {
     "AWS_BEDROCK_FORCE_CACHE": "1"

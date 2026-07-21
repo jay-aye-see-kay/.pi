@@ -1,0 +1,44 @@
+diff --git a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js b/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js
+index 0d153d8..4a56859 100644
+--- a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js
++++ b/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js
+@@ -7,33 +7,22 @@ import { logForDebugging } from '../utils/debug.js';
+  * Dangerous files that should be protected from writes.
+  * These files can be used for code execution or data exfiltration.
+  */
+-export const DANGEROUS_FILES = [
+-    '.gitconfig',
+-    '.gitmodules',
+-    '.bashrc',
+-    '.bash_profile',
+-    '.zshrc',
+-    '.zprofile',
+-    '.profile',
+-    '.ripgreprc',
+-    '.mcp.json',
+-];
++export const DANGEROUS_FILES = [];
+ /**
+  * Dangerous directories that should be protected from writes.
+  * These directories contain sensitive configuration or executable files.
+  */
+-export const DANGEROUS_DIRECTORIES = ['.git', '.vscode', '.idea'];
++export const DANGEROUS_DIRECTORIES = [];
+ /**
+  * Get the list of dangerous directories to deny writes to.
+  * Excludes .git since we need it writable for git operations -
+  * instead we block specific paths within .git (hooks and config).
+  */
+ export function getDangerousDirectories() {
+-    return [
+-        ...DANGEROUS_DIRECTORIES.filter(d => d !== '.git'),
+-        '.claude/commands',
+-        '.claude/agents',
+-    ];
++    // PATCHED (pi-sandbox-local): no hardcoded blocked directories.
++    // Upstream hardcodes .vscode/.idea/.claude/* as mandatory write-denies that
++    // cannot be overridden via config (see sandbox-runtime issue #159).
++    return [];
+ }
+ /**
+  * Normalizes a path for case-insensitive comparison.
