@@ -34,6 +34,7 @@
       "*.anthropic.com",
       "mcp.slack.com",
       "mcp.exa.ai",
+      "*.schemastore.org",
       "culture-amp-be.glean.com"
     ],
     "deniedDomains": []
@@ -70,6 +71,7 @@
       "~/Downloads/",
       "~/Library/Caches",
       "~/Library/pnpm",
+      "~/Library/Application Support/go",
       "~/code",
       "~/go",
       "~/hotel",
