@@ -5,7 +5,8 @@
  * to restrict bash. pi's in-process read/write/edit tools bypass the OS sandbox,
  * so they are gated separately in the `tool_call` hook.
  *
- * Two modes (config `mode`, default "sandbox"):
+ * Two modes (config `mode`, default "sandbox"; switch at runtime with
+ * `/sandbox enable` or `/sandbox prompt`):
  *
  *   "sandbox" — OS sandbox on. Network access to hosts outside `allowedDomains`
  *     is prompted at CONNECTION time via the sandbox's request-time ask callback
@@ -409,7 +410,7 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		if (mode === "prompt") {
-			ctx.ui.setStatus("sandbox", ctx.ui.theme.fg("warning", "🔓 Prompt mode: every read/edit/bash asks"));
+			setModeStatus(ctx);
 			return;
 		}
 		if (process.platform !== "darwin" && process.platform !== "linux") {
@@ -418,43 +419,102 @@ export default function (pi: ExtensionAPI) {
 		}
 		try {
 			await initSandbox();
-			const n = cfg.network?.allowedDomains?.length ?? 0;
-			const w = cfg.filesystem?.allowWrite?.length ?? 0;
-			ctx.ui.setStatus("sandbox", ctx.ui.theme.fg("accent", `🔒 Sandbox: ${n} domains, ${w} write paths`));
 		} catch (err) {
 			ctx.ui.notify(`Sandbox init failed: ${err instanceof Error ? err.message : err}`, "error");
 		}
+		setModeStatus(ctx);
 	});
 
 	pi.on("session_shutdown", async () => {
 		if (sandboxOn) try { await SandboxManager.reset(); } catch {}
 	});
 
+	// ── mode switching ────────────────────────────────────────────────────────
+	function setModeStatus(ctx: ExtensionContext): void {
+		if (mode === "prompt") {
+			ctx.ui.setStatus("sandbox", ctx.ui.theme.fg("warning", "🔓 Prompt mode: every read/edit/bash asks"));
+			return;
+		}
+		if (!sandboxOn) {
+			ctx.ui.setStatus("sandbox", ctx.ui.theme.fg("warning", "🔒 Sandbox mode (inactive)"));
+			return;
+		}
+		const cfg = loadConfig(cwd);
+		const n = cfg.network?.allowedDomains?.length ?? 0;
+		const w = cfg.filesystem?.allowWrite?.length ?? 0;
+		ctx.ui.setStatus("sandbox", ctx.ui.theme.fg("accent", `🔒 Sandbox: ${n} domains, ${w} write paths`));
+	}
+
+	async function enterSandboxMode(ctx: ExtensionContext): Promise<void> {
+		if (process.platform !== "darwin" && process.platform !== "linux") {
+			ctx.ui.notify(`Sandbox not supported on ${process.platform}`, "warning");
+			return;
+		}
+		mode = "sandbox";
+		if (!sandboxOn) {
+			try {
+				await initSandbox();
+			} catch (err) {
+				ctx.ui.notify(`Sandbox init failed: ${err instanceof Error ? err.message : err}`, "error");
+				return;
+			}
+		}
+		setModeStatus(ctx);
+		ctx.ui.notify("Sandbox mode: OS sandbox on; network & paths gated", "info");
+	}
+
+	async function enterPromptMode(ctx: ExtensionContext): Promise<void> {
+		mode = "prompt";
+		if (sandboxOn) {
+			try { await SandboxManager.reset(); } catch {}
+			sandboxOn = false;
+		}
+		setModeStatus(ctx);
+		ctx.ui.notify("Prompt mode: no OS sandbox; every read/edit/bash asks", "info");
+	}
+
+	function showConfig(ctx: ExtensionContext): void {
+		const cfg = loadConfig(cwd);
+		const { globalPath, projectPath } = configPaths(cwd);
+		const lines = [
+			`Sandbox mode: ${mode}${mode === "sandbox" && !sandboxOn ? " (inactive)" : ""}`,
+			"  Switch: /sandbox enable | /sandbox prompt",
+			`  Global config:  ${globalPath}`,
+			`  Project config: ${projectPath}`,
+			"",
+			"Network:",
+			`  Allowed: ${cfg.network?.allowedDomains?.join(", ") || "(none)"}`,
+			`  Denied:  ${cfg.network?.deniedDomains?.join(", ") || "(none)"}`,
+			...(sessionDomains.size ? [`  Session: ${[...sessionDomains].join(", ")}`] : []),
+			"",
+			"Filesystem:",
+			`  Deny Read:   ${cfg.filesystem?.denyRead?.join(", ") || "(none)"}`,
+			`  Allow Read:  ${cfg.filesystem?.allowRead?.join(", ") || "(none)"}`,
+			`  Allow Write: ${cfg.filesystem?.allowWrite?.join(", ") || "(none)"}`,
+			`  Deny Write:  ${cfg.filesystem?.denyWrite?.join(", ") || "(none)"}`,
+			...(sessionRead.length ? [`  Session read:  ${sessionRead.join(", ")}`] : []),
+			...(sessionWrite.length ? [`  Session write: ${sessionWrite.join(", ")}`] : []),
+		];
+		ctx.ui.notify(lines.join("\n"), "info");
+	}
+
 	// ── /sandbox ────────────────────────────────────────────────────────────────
 	pi.registerCommand("sandbox", {
-		description: "Show sandbox configuration",
-		handler: async (_args, ctx) => {
-			const cfg = loadConfig(cwd);
-			const { globalPath, projectPath } = configPaths(cwd);
-			const lines = [
-				`Sandbox mode: ${mode}${mode === "sandbox" && !sandboxOn ? " (inactive)" : ""}`,
-				`  Global config:  ${globalPath}`,
-				`  Project config: ${projectPath}`,
-				"",
-				"Network:",
-				`  Allowed: ${cfg.network?.allowedDomains?.join(", ") || "(none)"}`,
-				`  Denied:  ${cfg.network?.deniedDomains?.join(", ") || "(none)"}`,
-				...(sessionDomains.size ? [`  Session: ${[...sessionDomains].join(", ")}`] : []),
-				"",
-				"Filesystem:",
-				`  Deny Read:   ${cfg.filesystem?.denyRead?.join(", ") || "(none)"}`,
-				`  Allow Read:  ${cfg.filesystem?.allowRead?.join(", ") || "(none)"}`,
-				`  Allow Write: ${cfg.filesystem?.allowWrite?.join(", ") || "(none)"}`,
-				`  Deny Write:  ${cfg.filesystem?.denyWrite?.join(", ") || "(none)"}`,
-				...(sessionRead.length ? [`  Session read:  ${sessionRead.join(", ")}`] : []),
-				...(sessionWrite.length ? [`  Session write: ${sessionWrite.join(", ")}`] : []),
+		description: "Show config or switch mode: /sandbox [show|enable|prompt]",
+		getArgumentCompletions: (prefix) => {
+			const subs = [
+				{ value: "show", label: "show", description: "Show current sandbox config" },
+				{ value: "enable", label: "enable", description: "Switch to OS sandbox mode" },
+				{ value: "prompt", label: "prompt", description: "Switch to prompt-everything mode" },
 			];
-			ctx.ui.notify(lines.join("\n"), "info");
+			const filtered = subs.filter((s) => s.value.startsWith(prefix.trim().toLowerCase()));
+			return filtered.length > 0 ? filtered : null;
+		},
+		handler: async (args, ctx) => {
+			const sub = (args ?? "").trim().toLowerCase();
+			if (sub === "enable" || sub === "sandbox") return enterSandboxMode(ctx);
+			if (sub === "prompt") return enterPromptMode(ctx);
+			showConfig(ctx);
 		},
 	});
 }
