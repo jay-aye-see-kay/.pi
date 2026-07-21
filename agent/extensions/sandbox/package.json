@@ -5,7 +5,7 @@
   "pi": { "extensions": ["./index.ts"] },
   "scripts": { "postinstall": "patch-package" },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.65"
+    "@anthropic-ai/sandbox-runtime": "0.0.66"
   },
   "devDependencies": {
     "patch-package": "^8.0.0"
