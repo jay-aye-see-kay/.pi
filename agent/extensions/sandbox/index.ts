@@ -53,6 +53,7 @@ interface FilesystemConfig {
 interface SandboxConfig {
 	mode?: Mode;
 	enabled?: boolean;
+	enableWeakerNetworkIsolation?: boolean;
 	network?: NetworkConfig;
 	filesystem?: FilesystemConfig;
 }
@@ -91,6 +92,7 @@ function loadConfig(cwd: string): SandboxConfig {
 	const merged = [DEFAULT_CONFIG, readJson(globalPath), readJson(projectPath)].reduce<SandboxConfig>((acc, o) => ({
 		mode: o.mode ?? acc.mode,
 		enabled: o.enabled ?? acc.enabled,
+		enableWeakerNetworkIsolation: o.enableWeakerNetworkIsolation ?? acc.enableWeakerNetworkIsolation,
 		network: { ...acc.network, ...o.network },
 		filesystem: { ...acc.filesystem, ...o.filesystem },
 	}), {} as SandboxConfig);
@@ -277,6 +279,7 @@ export default function (pi: ExtensionAPI) {
 	function runtimeConfig() {
 		const cfg = loadConfig(cwd);
 		return {
+			enableWeakerNetworkIsolation: cfg.enableWeakerNetworkIsolation,
 			network: {
 				allowedDomains: effAllowedDomains(),
 				deniedDomains: cfg.network?.deniedDomains ?? [],

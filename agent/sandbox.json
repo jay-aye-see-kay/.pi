@@ -1,6 +1,6 @@
 {
   "enabled": true,
-  "allowBrowserProcess": true,
+  "enableWeakerNetworkIsolation": true,
   "network": {
     "allowLocalBinding": true,
     "allowAllUnixSockets": true,
