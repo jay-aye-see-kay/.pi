@@ -2,13 +2,12 @@
  * Intent Extension
  *
  * Lightweight "intent metadata" for a session: how you want the agent to work
- * (mode) and what you're driving at (goal). When either is set, a short
- * system-looking reminder is injected before each agent turn (via
- * before_agent_start). No tool restrictions - purely a prompt nudge.
+ * (mode). When set, a short system-looking reminder is injected before each
+ * agent turn (via before_agent_start). No tool restrictions - purely a prompt
+ * nudge.
  *
  * Metadata:
  *   mode - none | investigate | plan | act (how to work)
- *   goal - free-text north star for the session (what we're after)
  *
  * Each mode also nudges the thinking level (on models that support it;
  * no-op otherwise): investigate/plan -> high, none/act -> medium.
@@ -17,9 +16,6 @@
  *   /mode              - open a selector
  *   /mode plan         - set directly (also: act, investigate, none)
  *   shift+tab          - cycle none -> investigate -> plan -> act -> none
- *   /goal              - prompt for a goal (empty clears it)
- *   /goal ship the CLI - set directly
- *   /goal clear        - clear the goal
  */
 
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
@@ -61,15 +57,13 @@ function supportsThinkingLevel(
 
 export default function intentExtension(pi: ExtensionAPI): void {
   let mode: Mode = "none";
-  let goal = "";
 
   function updateStatus(ctx: ExtensionContext): void {
     ctx.ui.setStatus("mode", mode === "none" ? undefined : mode.toUpperCase());
-    ctx.ui.setStatus("goal", goal ? "🎯" : undefined);
   }
 
   function persist(): void {
-    pi.appendEntry("intent", { mode, goal });
+    pi.appendEntry("intent", { mode });
   }
 
   function setMode(next: Mode, ctx: ExtensionContext): void {
@@ -79,13 +73,6 @@ export default function intentExtension(pi: ExtensionAPI): void {
     const level = MODE_THINKING[next];
     if (supportsThinkingLevel(ctx.model, level)) pi.setThinkingLevel(level);
     ctx.ui.notify(mode === "none" ? "Mode: none" : `Mode: ${mode}`, "info");
-  }
-
-  function setGoal(next: string, ctx: ExtensionContext): void {
-    goal = next.trim();
-    updateStatus(ctx);
-    persist();
-    ctx.ui.notify(goal ? `Goal: ${goal}` : "Goal cleared", "info");
   }
 
   pi.registerCommand("mode", {
@@ -111,21 +98,6 @@ export default function intentExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerCommand("goal", {
-    description: "Set a session goal shown to the agent (empty or 'clear' to unset)",
-    handler: async (args, ctx) => {
-      const arg = args.trim();
-      if (arg) {
-        setGoal(arg.toLowerCase() === "clear" ? "" : arg, ctx);
-        return;
-      }
-      if (!ctx.hasUI) return;
-      const next = await ctx.ui.input("Goal:", goal);
-      if (next === undefined) return;
-      setGoal(next, ctx);
-    },
-  });
-
   pi.registerShortcut("shift+tab", {
     description: "Cycle mode (none/investigate/plan/act)",
     handler: async (ctx) => {
@@ -135,14 +107,11 @@ export default function intentExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async () => {
-    const lines: string[] = [];
-    if (mode !== "none") lines.push(`Mode: ${MODE_TEXT[mode]}`);
-    if (goal) lines.push(`Goal: ${goal}`);
-    if (lines.length === 0) return undefined;
+    if (mode === "none") return undefined;
     return {
       message: {
         customType: "intent-tag",
-        content: `<system-message>\n${lines.map((l) => `  ${l}`).join("\n")}\n</system-message>`,
+        content: `<system-message>\n  Mode: ${MODE_TEXT[mode]}\n</system-message>`,
         display: false,
       },
     };
@@ -154,11 +123,10 @@ export default function intentExtension(pi: ExtensionAPI): void {
       const entry = entries[i] as {
         type: string;
         customType?: string;
-        data?: { mode?: Mode; goal?: string };
+        data?: { mode?: Mode };
       };
       if (entry.type === "custom" && entry.customType === "intent") {
         mode = entry.data?.mode ?? "none";
-        goal = entry.data?.goal ?? "";
         break;
       }
     }
