@@ -182,8 +182,13 @@ function sandboxedBashOps(shellPath?: string): BashOperations {
 			if (!existsSync(cwd)) throw new Error(`Working directory does not exist: ${cwd}`);
 			const wrapped = await SandboxManager.wrapWithSandbox(command);
 			const { shell, args } = getShellConfig(shellPath);
+			// The sandbox isolates network via an HTTP(S) proxy (HTTPS_PROXY). Node's
+			// fetch/undici ignores that proxy unless NODE_USE_ENV_PROXY=1, so Node-based
+			// CLIs (e.g. mcporter MCP calls) get EPERM. Opt them into the proxy here.
+			const childEnv = { ...(env ?? process.env) };
+			if (childEnv.NODE_USE_ENV_PROXY === undefined) childEnv.NODE_USE_ENV_PROXY = "1";
 			return new Promise((resolvePromise, reject) => {
-				const child = spawn(shell, [...args, wrapped], { cwd, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+				const child = spawn(shell, [...args, wrapped], { cwd, env: childEnv, detached: true, stdio: ["ignore", "pipe", "pipe"] });
 				let timedOut = false;
 				let th: NodeJS.Timeout | undefined;
 				if (timeout && timeout > 0) {
