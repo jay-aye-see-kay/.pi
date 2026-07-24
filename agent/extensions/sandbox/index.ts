@@ -31,7 +31,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { BashOperations, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createBashTool, getAgentDir, getShellConfig, isToolCallEventType } from "@earendil-works/pi-coding-agent";
+import { createBashTool, getAgentDir, getShellConfig, isToolCallEventType, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -227,7 +227,12 @@ type Grant = "session" | "project" | "global" | "deny";
 export default function (pi: ExtensionAPI) {
 	const cwd = process.cwd();
 	const { shell } = getShellConfig();
-	const localBash = createBashTool(cwd);
+	// Honor the user's shellCommandPrefix (e.g. "shopt -s expand_aliases"). Core
+	// applies it to its own bash tool, but we replace that tool below, so we must
+	// thread it through ourselves. user_bash (!) is unaffected — core prepends the
+	// prefix before our operations hook runs.
+	const shellCommandPrefix = SettingsManager.create(cwd, getAgentDir()).getShellCommandPrefix();
+	const localBash = createBashTool(cwd, { commandPrefix: shellCommandPrefix });
 
 	let mode: Mode = "sandbox";
 	let sandboxOn = false; // OS sandbox initialised
@@ -336,7 +341,7 @@ export default function (pi: ExtensionAPI) {
 			if (mode !== "sandbox" || !sandboxOn) {
 				return localBash.execute(id, params, signal, onUpdate); // prompt mode / disabled: run bare
 			}
-			const sandboxed = createBashTool(cwd, { operations: sandboxedBashOps(shell) });
+			const sandboxed = createBashTool(cwd, { operations: sandboxedBashOps(shell), commandPrefix: shellCommandPrefix });
 			const result = await sandboxed.execute(id, params, signal, onUpdate);
 
 			// Detect an OS-level write block and offer to allow + retry once.
@@ -348,7 +353,7 @@ export default function (pi: ExtensionAPI) {
 					if (grant !== "deny") {
 						await applyGrant("write", blocked, grant);
 						onUpdate?.({ content: [{ type: "text", text: `\n--- write allowed for "${blocked}", retrying ---\n` }], details: undefined });
-						const retry = createBashTool(cwd, { operations: sandboxedBashOps(shell) });
+						const retry = createBashTool(cwd, { operations: sandboxedBashOps(shell), commandPrefix: shellCommandPrefix });
 						return retry.execute(id, params, signal, onUpdate);
 					}
 				}
