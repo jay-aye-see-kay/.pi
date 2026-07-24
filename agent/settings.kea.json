@@ -13,5 +13,14 @@
     "github-copilot/claude-haiku-4.5": "fast and cheap, use for finding things and simple grunt work",
     "github-copilot/claude-opus-4.8": "slower and more expensive but great for hard problems and reasoning"
   },
-  "quietStartup": true
+  "quietStartup": true,
+  "env": {
+    "PI_CACHE_RETENTION": "long"
+  },
+  "showCacheMissNotices": true,
+  "terminal": {
+    "showTerminalProgress": true
+  },
+  "collapseChangelog": true,
+  "treeFilterMode": "no-tools"
 }
