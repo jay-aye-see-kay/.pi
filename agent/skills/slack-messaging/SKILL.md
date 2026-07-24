@@ -13,7 +13,7 @@ only-on-hosts: ["jrose-04LCLG"]
 | Find when **I** said X | `search_public_and_private query="from:me X"` |
 | **What's waiting on me** today | see [daily triage](references/searching.md#daily-triage) |
 | Any conversation about X | `search_public_and_private query="X"` |
-| Context from a Slack **link** | parse link → `read_thread` |
+| Context from a Slack **link** | parse link → `read_thread channel_id=C… message_ts=…` (needs `message_ts`, **not** `thread_ts`; use the URL's `thread_ts` as `message_ts`) |
 | Message a person/team | resolve ID → `send_message_draft` |
 | Send to **#channel** (leading # = channel name) | resolve channel ID → `send_message_draft` |
 | Reply to a thread **link** | parse link → `send_message thread_ts=…` |
