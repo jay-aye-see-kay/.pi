@@ -30,7 +30,7 @@ const SECRETS: Record<string, string> = {
   GITHUB_TOKEN: "pi-github-token",
   // Personal-account PAT (jay-aye-see-kay repos, e.g. this ~/.pi repo). Kept in
   // its own var, NOT GH_TOKEN/GITHUB_TOKEN, so it only surfaces via the
-  // path-scoped git credential helper in agent/git/config for
+  // path-scoped git credential helper in agent/gitconfig for
   // github.com/jay-aye-see-kay/* remotes. gh's default stays the cultureamp token.
   GITHUB_PERSONAL_TOKEN: "pi-github-personal-token",
   BUILDKITE_API_TOKEN: "pi-buildkite-token",
@@ -57,16 +57,9 @@ export default function (_pi: ExtensionAPI) {
   }
 
   // Point git at a standalone sandbox config (https + gh credential helper, no
-  // ~/.ssh needed). The human stays both author and committer; agent
-  // attribution is a `Co-Authored-By: pi` trailer added by the
-  // prepare-commit-msg hook (see below). `??=` so launch-time overrides win.
-  process.env.GIT_CONFIG_GLOBAL ??= join(import.meta.dirname, "../git/config");
-
-  // core.hooksPath must be absolute to apply in every repo the agent touches;
-  // GIT_CONFIG_* composes with GIT_CONFIG_GLOBAL. Guard so launch-time wins.
-  if (!process.env.GIT_CONFIG_COUNT) {
-    process.env.GIT_CONFIG_COUNT = "1";
-    process.env.GIT_CONFIG_KEY_0 = "core.hooksPath";
-    process.env.GIT_CONFIG_VALUE_0 = join(import.meta.dirname, "../git/hooks");
-  }
+  // ~/.ssh needed) and attribute commits to the agent as committer while the
+  // human above stays the author. `??=` so launch-time overrides win.
+  process.env.GIT_CONFIG_GLOBAL ??= join(import.meta.dirname, "../gitconfig");
+  process.env.GIT_COMMITTER_NAME ??= "pi";
+  process.env.GIT_COMMITTER_EMAIL ??= "pi-agent@jackrose.co.nz";
 }

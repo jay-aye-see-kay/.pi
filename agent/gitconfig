@@ -7,9 +7,7 @@
 # needs ~/.ssh (which stays blocked in the sandbox). The [url] block rewrites
 # ssh remotes to https so repos cloned with git@github.com: URLs still work.
 #
-# Commits: author = committer = user below; agent attribution is a
-# `Co-Authored-By: pi <noreply@pi.dev>` trailer added by the prepare-commit-msg
-# hook (core.hooksPath is set via GIT_CONFIG_* env in agent/extensions/secrets.ts).
+# Commits: author = user below; committer = pi (via GIT_COMMITTER_* env).
 
 [user]
 	name = Jack Rose
