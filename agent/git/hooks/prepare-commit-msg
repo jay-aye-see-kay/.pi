@@ -1,0 +1,6 @@
+#!/bin/sh
+# Append pi co-author trailer unless already present. $2 is the message source;
+# skip merge/squash so we don't rewrite those.
+case "$2" in merge|squash) exit 0 ;; esac
+trailer="Co-Authored-By: pi <noreply@pi.dev>"
+grep -qiF "$trailer" "$1" || printf '\n%s\n' "$trailer" >> "$1"
