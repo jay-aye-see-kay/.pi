@@ -12,7 +12,8 @@
  *     is prompted at CONNECTION time via the sandbox's request-time ask callback
  *     (accurate — no command regex). read/write/edit are gated against
  *     allowRead/allowWrite/denyWrite. Grants can be kept for the session, the
- *     project, or all projects.
+ *     project, or all projects. Denying a host is remembered for the session
+ *     (chatty endpoints otherwise re-prompt on every connection).
  *
  *   "prompt" — NO OS sandbox. The agent can touch anything outside the sandbox,
  *     but every read/edit/write/bash is prompted, every time, with no memory.
@@ -240,10 +241,12 @@ export default function (pi: ExtensionAPI) {
 
 	// Runtime grants (in-memory, not visible to the agent), on top of config files.
 	const sessionDomains = new Set<string>();
+	const sessionDeniedDomains = new Set<string>();
 	const sessionRead: string[] = [];
 	const sessionWrite: string[] = [];
 
 	const effAllowedDomains = () => [...(loadConfig(cwd).network?.allowedDomains ?? []), ...sessionDomains];
+	const effDeniedDomains = () => [...(loadConfig(cwd).network?.deniedDomains ?? []), ...sessionDeniedDomains];
 	const effAllowRead = () => [...(loadConfig(cwd).filesystem?.allowRead ?? []), ...sessionRead];
 	const effAllowWrite = () => [...(loadConfig(cwd).filesystem?.allowWrite ?? []), ...sessionWrite];
 
@@ -261,8 +264,8 @@ export default function (pi: ExtensionAPI) {
 		project: "Allow — this project (.pi/sandbox.json)",
 		global: "Allow — all projects (~/.pi/agent/sandbox.json)",
 	};
-	async function promptGrant(ctx: ExtensionContext, title: string): Promise<Grant> {
-		const labels = [GRANT_LABELS.session, GRANT_LABELS.project, GRANT_LABELS.global, "Deny"];
+	async function promptGrant(ctx: ExtensionContext, title: string, denyLabel = "Deny"): Promise<Grant> {
+		const labels = [GRANT_LABELS.session, GRANT_LABELS.project, GRANT_LABELS.global, denyLabel];
 		const choice = await ctx.ui.select(title, labels);
 		if (choice === GRANT_LABELS.session) return "session";
 		if (choice === GRANT_LABELS.project) return "project";
@@ -310,13 +313,21 @@ export default function (pi: ExtensionAPI) {
 	// resolve via allow/deny lists → we only need to consult runtime grants.
 	const askNetwork = async ({ host }: { host: string; port: number | undefined }): Promise<boolean> => {
 		if (domainAllowed(host, effAllowedDomains())) return true;
+		if (domainAllowed(host, effDeniedDomains())) return false;
 		const ctx = ctxRef;
 		if (!ctx?.hasUI) return false;
 		return enqueue(async () => {
 			if (domainAllowed(host, effAllowedDomains())) return true; // granted while queued
-			const grant = await promptGrant(ctx, `🌐 Allow network connection to "${host}"?`);
+			if (domainAllowed(host, effDeniedDomains())) return false; // denied while queued
+			const grant = await promptGrant(ctx, `🌐 Allow network connection to "${host}"?`, "Deny — this session");
+			if (grant === "deny") {
+				// Remember for the session: chatty endpoints (analytics, telemetry) retry
+				// constantly and the library asks on every connection.
+				sessionDeniedDomains.add(host);
+				return false;
+			}
 			await applyGrant("domain", host, grant);
-			return grant !== "deny";
+			return true;
 		});
 	};
 
@@ -498,7 +509,8 @@ export default function (pi: ExtensionAPI) {
 			"Network:",
 			`  Allowed: ${cfg.network?.allowedDomains?.join(", ") || "(none)"}`,
 			`  Denied:  ${cfg.network?.deniedDomains?.join(", ") || "(none)"}`,
-			...(sessionDomains.size ? [`  Session: ${[...sessionDomains].join(", ")}`] : []),
+			...(sessionDomains.size ? [`  Session allowed: ${[...sessionDomains].join(", ")}`] : []),
+			...(sessionDeniedDomains.size ? [`  Session denied:  ${[...sessionDeniedDomains].join(", ")}`] : []),
 			"",
 			"Filesystem:",
 			`  Deny Read:   ${cfg.filesystem?.denyRead?.join(", ") || "(none)"}`,
