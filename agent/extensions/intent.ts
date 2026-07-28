@@ -7,24 +7,32 @@
  * nudge.
  *
  * Metadata:
- *   mode - none | investigate | plan | act (how to work)
+ *   mode  - none | investigate | plan | act (how to work)
+ *   style - none | ASD-STE100 | caveman (how to talk)
  *
  * Each mode also nudges the thinking level (on models that support it;
  * no-op otherwise): investigate/plan -> high, none/act -> medium.
+ *
+ * Style defaults to ASD-STE100 in interactive sessions, none elsewhere
+ * (print/json, e.g. subagent children).
  *
  * Usage:
  *   /mode              - open a selector
  *   /mode plan         - set directly (also: act, investigate, none)
  *   shift+tab          - cycle none -> investigate -> plan -> act -> none
+ *   /style             - open a selector
+ *   /style caveman     - set directly (also: ASD-STE100, none)
  */
 
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 type Mode = "none" | "investigate" | "plan" | "act";
+type Style = "none" | "ASD-STE100" | "caveman";
 type ThinkingLevel = "medium" | "high";
 
 const MODES: Mode[] = ["none", "investigate", "plan", "act"];
+const STYLES: Style[] = ["none", "ASD-STE100", "caveman"];
 
 const doNotEditInstruction = "Do NOT edit code or mutate state - even if asked to (exception: temp scripts/files for understanding)."
 
@@ -35,6 +43,14 @@ const MODE_TEXT: Record<Exclude<Mode, "none">, string> = {
     `PLAN: Think through approach and tradeoffs; aim for a plan another agent or engineer could execute. ${doNotEditInstruction}`,
   act:
     "ACT: Bias for action. You have approval to make changes - edit, run, refactor. If the task is clear, just do it.",
+};
+
+// One line each - both styles are well known; remind, don't restate the spec.
+const STYLE_TEXT: Record<Exclude<Style, "none">, string> = {
+  "ASD-STE100":
+    "ASD-STE100 (Simplified Technical English) for prose. Code, commands, paths and errors stay verbatim.",
+  caveman:
+    "Caveman-speak: drop articles, filler and hedging; fragments fine. Code, commands, paths and errors stay verbatim.",
 };
 
 // Thinking level to apply per mode (on models that support it; no-op otherwise).
@@ -57,13 +73,14 @@ function supportsThinkingLevel(
 
 export default function intentExtension(pi: ExtensionAPI): void {
   let mode: Mode = "none";
+  let style: Style = "none"; // resolved in session_start
 
   function updateStatus(ctx: ExtensionContext): void {
     ctx.ui.setStatus("mode", mode === "none" ? undefined : mode.toUpperCase());
   }
 
   function persist(): void {
-    pi.appendEntry("intent", { mode });
+    pi.appendEntry("intent", { mode, style });
   }
 
   function setMode(next: Mode, ctx: ExtensionContext): void {
@@ -73,6 +90,12 @@ export default function intentExtension(pi: ExtensionAPI): void {
     const level = MODE_THINKING[next];
     if (supportsThinkingLevel(ctx.model, level)) pi.setThinkingLevel(level);
     ctx.ui.notify(mode === "none" ? "Mode: none" : `Mode: ${mode}`, "info");
+  }
+
+  function setStyle(next: Style, ctx: ExtensionContext): void {
+    style = next;
+    persist();
+    ctx.ui.notify(`Style: ${style}`, "info");
   }
 
   pi.registerCommand("mode", {
@@ -98,6 +121,33 @@ export default function intentExtension(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("style", {
+    description: `Set communication style (${STYLES.join("/")})`,
+    getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+      const lower = prefix.toLowerCase();
+      const items = STYLES.filter((s) => s.toLowerCase().startsWith(lower)).map((s) => ({
+        value: s,
+        label: s,
+      }));
+      return items.length > 0 ? items : null;
+    },
+    handler: async (args, ctx) => {
+      const arg = args.trim();
+      if (!arg) {
+        if (!ctx.hasUI) return;
+        const choice = await ctx.ui.select("Style:", STYLES);
+        if (choice) setStyle(choice as Style, ctx);
+        return;
+      }
+      const match = STYLES.find((s) => s.toLowerCase() === arg.toLowerCase());
+      if (!match) {
+        ctx.ui.notify(`Unknown style "${arg}". Options: ${STYLES.join(", ")}`, "warning");
+        return;
+      }
+      setStyle(match, ctx);
+    },
+  });
+
   pi.registerShortcut("shift+tab", {
     description: "Cycle mode (none/investigate/plan/act)",
     handler: async (ctx) => {
@@ -107,26 +157,35 @@ export default function intentExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", async () => {
-    if (mode === "none") return undefined;
+    const lines: string[] = [];
+    if (mode !== "none") lines.push(`  Mode: ${MODE_TEXT[mode]}`);
+    if (style !== "none") lines.push(`  Communication Style: ${STYLE_TEXT[style]}`);
+    if (lines.length === 0) return undefined;
     return {
       message: {
         customType: "intent-tag",
-        content: `<system-message>\n  Mode: ${MODE_TEXT[mode]}\n</system-message>`,
+        content: `<system-message>\n${lines.join("\n")}\n</system-message>`,
         display: false,
       },
     };
   });
 
   pi.on("session_start", async (_event, ctx) => {
+    // Interactive sessions get a style by default; print/json (e.g. subagent
+    // children) stay plain.
+    const defaultStyle: Style = ctx.hasUI ? "ASD-STE100" : "none";
+    style = defaultStyle;
+
     const entries = ctx.sessionManager.getEntries();
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i] as {
         type: string;
         customType?: string;
-        data?: { mode?: Mode };
+        data?: { mode?: Mode; style?: Style };
       };
       if (entry.type === "custom" && entry.customType === "intent") {
         mode = entry.data?.mode ?? "none";
+        style = entry.data?.style ?? defaultStyle;
         break;
       }
     }
