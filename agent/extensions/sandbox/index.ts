@@ -12,8 +12,9 @@
  *     is prompted at CONNECTION time via the sandbox's request-time ask callback
  *     (accurate — no command regex). read/write/edit are gated against
  *     allowRead/allowWrite/denyWrite. Grants can be kept for the session, the
- *     project, or all projects. Denying a host is remembered for the session
- *     (chatty endpoints otherwise re-prompt on every connection).
+ *     project, or all projects. Denying a host/path is remembered for the session
+ *     (chatty endpoints otherwise re-prompt on every connection). Prompt keys:
+ *     a = session, P = project, G = global, d = deny for session, esc = deny once.
  *
  *   "prompt" — NO OS sandbox. The agent can touch anything outside the sandbox,
  *     but every read/edit/write/bash is prompted, every time, with no memory.
@@ -32,7 +33,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { BashOperations, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createBashTool, getAgentDir, getShellConfig, isToolCallEventType, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createBashTool, DynamicBorder, getAgentDir, getShellConfig, isToolCallEventType, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -251,6 +253,9 @@ export default function (pi: ExtensionAPI) {
 	const sessionDeniedDomains = new Set<string>();
 	const sessionRead: string[] = [];
 	const sessionWrite: string[] = [];
+	// Explicit "deny — this session" choices: block without re-prompting.
+	const sessionDeniedRead = new Set<string>();
+	const sessionDeniedWrite = new Set<string>();
 
 	const effAllowedDomains = () => [...(loadConfig(cwd).network?.allowedDomains ?? []), ...sessionDomains];
 	const effAllowRead = () => [...(loadConfig(cwd).filesystem?.allowRead ?? []), ...sessionRead];
@@ -265,20 +270,56 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// ── Grant prompt ────────────────────────────────────────────────────────────
-	const GRANT_LABELS: Record<"session" | "project" | "global", string> = {
-		session: "Allow — this session only",
-		project: "Allow — this project (.pi/sandbox.json)",
-		global: "Allow — all projects (~/.pi/agent/sandbox.json)",
-	};
-	async function promptGrant(ctx: ExtensionContext, title: string, denyLabel = "Deny"): Promise<Grant> {
-		const labels = [GRANT_LABELS.session, GRANT_LABELS.project, GRANT_LABELS.global, denyLabel];
-		const choice = await ctx.ui.select(title, labels);
-		if (choice === GRANT_LABELS.session) return "session";
-		if (choice === GRANT_LABELS.project) return "project";
-		if (choice === GRANT_LABELS.global) return "global";
-		// core resolves undefined when the selector is dismissed (ESC / timeout /
-		// abort) — distinct from picking the deny label, which we may remember.
-		return choice === undefined ? "cancel" : "deny";
+	// Each option has a single-key accelerator; ESC is also listed explicitly so
+	// the "deny once" escape hatch is discoverable rather than implicit.
+	const GRANT_OPTIONS: { grant: Grant; key: string; label: string }[] = [
+		{ grant: "session", key: "a", label: "Allow — this session only" },
+		{ grant: "project", key: "P", label: "Allow — this project (.pi/sandbox.json)" },
+		{ grant: "global", key: "G", label: "Allow — all projects (~/.pi/agent/sandbox.json)" },
+		{ grant: "deny", key: "d", label: "Deny — this session" },
+		{ grant: "cancel", key: "esc", label: "Deny — just this once" },
+	];
+	const grantLabel = (o: (typeof GRANT_OPTIONS)[number]) => `${o.label} [${o.key}]`;
+
+	async function promptGrant(ctx: ExtensionContext, title: string): Promise<Grant> {
+		if (ctx.mode !== "tui") {
+			// No custom components (rpc/json/print): fall back to the plain selector.
+			const choice = await ctx.ui.select(title, GRANT_OPTIONS.map(grantLabel));
+			return GRANT_OPTIONS.find((o) => grantLabel(o) === choice)?.grant ?? "cancel";
+		}
+		return ctx.ui.custom<Grant>((tui, theme, _kb, done) => {
+			const container = new Container();
+			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+			container.addChild(new Text(theme.fg("accent", theme.bold(title)), 1, 0));
+
+			const items: SelectItem[] = GRANT_OPTIONS.map((o) => ({ value: o.grant, label: grantLabel(o) }));
+			const list = new SelectList(items, items.length, {
+				selectedPrefix: (t) => theme.fg("accent", t),
+				selectedText: (t) => theme.fg("accent", t),
+				description: (t) => theme.fg("muted", t),
+				scrollInfo: (t) => theme.fg("dim", t),
+				noMatch: (t) => theme.fg("warning", t),
+			});
+			list.onSelect = (item) => done(item.value as Grant);
+			list.onCancel = () => done("cancel");
+			container.addChild(list);
+			container.addChild(new Text(theme.fg("dim", "↑↓ navigate • enter select • a/P/G/d shortcuts • esc deny once"), 1, 0));
+			container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
+
+			return {
+				render: (w) => container.render(w),
+				invalidate: () => container.invalidate(),
+				handleInput: (data) => {
+					const hit = GRANT_OPTIONS.find((o) => o.key === data);
+					if (hit) {
+						done(hit.grant);
+						return;
+					}
+					list.handleInput(data);
+					tui.requestRender();
+				},
+			};
+		});
 	}
 
 	async function applyGrant(kind: "domain" | "read" | "write", value: string, grant: Grant): Promise<void> {
@@ -327,7 +368,7 @@ export default function (pi: ExtensionAPI) {
 		return enqueue(async () => {
 			if (domainAllowed(host, effAllowedDomains())) return true; // granted while queued
 			if (sessionDeniedDomains.has(host)) return false; // denied while queued
-			const grant = await promptGrant(ctx, `🌐 Allow network connection to "${host}"?`, "Deny — this session");
+			const grant = await promptGrant(ctx, `🌐 Allow network connection to "${host}"?`);
 			if (grant === "deny") {
 				// Remember for the session: chatty endpoints (analytics, telemetry) retry
 				// constantly and the library asks on every connection.
@@ -370,8 +411,9 @@ export default function (pi: ExtensionAPI) {
 			if (ctx?.hasUI) {
 				const text = result.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("\n");
 				const blocked = blockedWritePath(text);
-				if (blocked && !matchesPattern(blocked, loadConfig(cwd).filesystem?.denyWrite ?? [])) {
+				if (blocked && !sessionDeniedWrite.has(canonicalizePath(blocked)) && !matchesPattern(blocked, loadConfig(cwd).filesystem?.denyWrite ?? [])) {
 					const grant = await promptGrant(ctx, `📝 bash write blocked: allow write to "${blocked}"?`);
+					if (grant === "deny") sessionDeniedWrite.add(canonicalizePath(blocked));
 					if (isAllow(grant)) {
 						await applyGrant("write", blocked, grant);
 						onUpdate?.({ content: [{ type: "text", text: `\n--- write allowed for "${blocked}", retrying ---\n` }], details: undefined });
@@ -397,7 +439,9 @@ export default function (pi: ExtensionAPI) {
 		if (isToolCallEventType("read", event)) {
 			const path = canonicalizePath(event.input.path);
 			if (matchesPattern(path, effAllowRead())) return;
+			if (sessionDeniedRead.has(path)) return { block: true, reason: `Sandbox: read denied for "${path}" (denied for this session)` };
 			const grant = await promptGrant(ctx, `📖 Allow read of "${path}"?`);
+			if (grant === "deny") sessionDeniedRead.add(path);
 			if (!isAllow(grant)) return { block: true, reason: `Sandbox: read denied for "${path}"` };
 			await applyGrant("read", path, grant);
 			return;
@@ -410,7 +454,9 @@ export default function (pi: ExtensionAPI) {
 				return { block: true, reason: `Sandbox: write denied for "${path}" (in denyWrite)` };
 			}
 			if (matchesPattern(path, effAllowWrite())) return;
+			if (sessionDeniedWrite.has(path)) return { block: true, reason: `Sandbox: write denied for "${path}" (denied for this session)` };
 			const grant = await promptGrant(ctx, `📝 Allow write to "${path}"?`);
+			if (grant === "deny") sessionDeniedWrite.add(path);
 			if (!isAllow(grant)) return { block: true, reason: `Sandbox: write denied for "${path}"` };
 			await applyGrant("write", path, grant);
 			return;
@@ -530,6 +576,8 @@ export default function (pi: ExtensionAPI) {
 			`  Deny Write:  ${cfg.filesystem?.denyWrite?.join(", ") || "(none)"}`,
 			...(sessionRead.length ? [`  Session read:  ${sessionRead.join(", ")}`] : []),
 			...(sessionWrite.length ? [`  Session write: ${sessionWrite.join(", ")}`] : []),
+			...(sessionDeniedRead.size ? [`  Session denied read:  ${[...sessionDeniedRead].join(", ")}`] : []),
+			...(sessionDeniedWrite.size ? [`  Session denied write: ${[...sessionDeniedWrite].join(", ")}`] : []),
 		];
 		ctx.ui.notify(lines.join("\n"), "info");
 	}
