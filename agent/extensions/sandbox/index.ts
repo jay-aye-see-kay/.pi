@@ -223,7 +223,14 @@ function blockedWritePath(output: string): string | null {
 
 // ── Extension ─────────────────────────────────────────────────────────────────
 
-type Grant = "session" | "project" | "global" | "deny";
+/**
+ * Outcome of a grant prompt. "deny" is an explicit choice and may be remembered;
+ * "cancel" means the user dismissed the dialog (ESC) and must never be remembered
+ * — it blocks the operation at hand and nothing more.
+ */
+type Grant = "session" | "project" | "global" | "deny" | "cancel";
+
+const isAllow = (g: Grant): g is "session" | "project" | "global" => g === "session" || g === "project" || g === "global";
 
 export default function (pi: ExtensionAPI) {
 	const cwd = process.cwd();
@@ -258,7 +265,7 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	// ── Grant prompt ────────────────────────────────────────────────────────────
-	const GRANT_LABELS: Record<Exclude<Grant, "deny">, string> = {
+	const GRANT_LABELS: Record<"session" | "project" | "global", string> = {
 		session: "Allow — this session only",
 		project: "Allow — this project (.pi/sandbox.json)",
 		global: "Allow — all projects (~/.pi/agent/sandbox.json)",
@@ -269,11 +276,13 @@ export default function (pi: ExtensionAPI) {
 		if (choice === GRANT_LABELS.session) return "session";
 		if (choice === GRANT_LABELS.project) return "project";
 		if (choice === GRANT_LABELS.global) return "global";
-		return "deny";
+		// core resolves undefined when the selector is dismissed (ESC / timeout /
+		// abort) — distinct from picking the deny label, which we may remember.
+		return choice === undefined ? "cancel" : "deny";
 	}
 
 	async function applyGrant(kind: "domain" | "read" | "write", value: string, grant: Grant): Promise<void> {
-		if (grant === "deny") return;
+		if (!isAllow(grant)) return;
 		const { globalPath, projectPath } = configPaths(cwd);
 		const section = kind === "domain" ? "network" : "filesystem";
 		const key = kind === "domain" ? "allowedDomains" : kind === "read" ? "allowRead" : "allowWrite";
@@ -325,6 +334,9 @@ export default function (pi: ExtensionAPI) {
 				sessionDeniedDomains.add(host);
 				return false;
 			}
+			// Dismissed: fail this connection only, so a stray ESC can't blackhole a
+			// host for the rest of the session. The next attempt asks again.
+			if (grant === "cancel") return false;
 			await applyGrant("domain", host, grant);
 			return true;
 		});
@@ -360,7 +372,7 @@ export default function (pi: ExtensionAPI) {
 				const blocked = blockedWritePath(text);
 				if (blocked && !matchesPattern(blocked, loadConfig(cwd).filesystem?.denyWrite ?? [])) {
 					const grant = await promptGrant(ctx, `📝 bash write blocked: allow write to "${blocked}"?`);
-					if (grant !== "deny") {
+					if (isAllow(grant)) {
 						await applyGrant("write", blocked, grant);
 						onUpdate?.({ content: [{ type: "text", text: `\n--- write allowed for "${blocked}", retrying ---\n` }], details: undefined });
 						const retry = createBashTool(cwd, { operations: sandboxedBashOps(shell), commandPrefix: shellCommandPrefix });
@@ -386,7 +398,7 @@ export default function (pi: ExtensionAPI) {
 			const path = canonicalizePath(event.input.path);
 			if (matchesPattern(path, effAllowRead())) return;
 			const grant = await promptGrant(ctx, `📖 Allow read of "${path}"?`);
-			if (grant === "deny") return { block: true, reason: `Sandbox: read denied for "${path}"` };
+			if (!isAllow(grant)) return { block: true, reason: `Sandbox: read denied for "${path}"` };
 			await applyGrant("read", path, grant);
 			return;
 		}
@@ -399,7 +411,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (matchesPattern(path, effAllowWrite())) return;
 			const grant = await promptGrant(ctx, `📝 Allow write to "${path}"?`);
-			if (grant === "deny") return { block: true, reason: `Sandbox: write denied for "${path}"` };
+			if (!isAllow(grant)) return { block: true, reason: `Sandbox: write denied for "${path}"` };
 			await applyGrant("write", path, grant);
 			return;
 		}
