@@ -246,7 +246,6 @@ export default function (pi: ExtensionAPI) {
 	const sessionWrite: string[] = [];
 
 	const effAllowedDomains = () => [...(loadConfig(cwd).network?.allowedDomains ?? []), ...sessionDomains];
-	const effDeniedDomains = () => [...(loadConfig(cwd).network?.deniedDomains ?? []), ...sessionDeniedDomains];
 	const effAllowRead = () => [...(loadConfig(cwd).filesystem?.allowRead ?? []), ...sessionRead];
 	const effAllowWrite = () => [...(loadConfig(cwd).filesystem?.allowWrite ?? []), ...sessionWrite];
 
@@ -313,12 +312,12 @@ export default function (pi: ExtensionAPI) {
 	// resolve via allow/deny lists → we only need to consult runtime grants.
 	const askNetwork = async ({ host }: { host: string; port: number | undefined }): Promise<boolean> => {
 		if (domainAllowed(host, effAllowedDomains())) return true;
-		if (domainAllowed(host, effDeniedDomains())) return false;
+		if (sessionDeniedDomains.has(host)) return false;
 		const ctx = ctxRef;
 		if (!ctx?.hasUI) return false;
 		return enqueue(async () => {
 			if (domainAllowed(host, effAllowedDomains())) return true; // granted while queued
-			if (domainAllowed(host, effDeniedDomains())) return false; // denied while queued
+			if (sessionDeniedDomains.has(host)) return false; // denied while queued
 			const grant = await promptGrant(ctx, `🌐 Allow network connection to "${host}"?`, "Deny — this session");
 			if (grant === "deny") {
 				// Remember for the session: chatty endpoints (analytics, telemetry) retry
