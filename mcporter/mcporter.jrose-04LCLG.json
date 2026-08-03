@@ -30,6 +30,11 @@
       "description": "Atlassian hosted MCP — Jira and Confluence (Culture Amp)",
       "baseUrl": "https://mcp.atlassian.com/v1/mcp",
       "auth": "oauth"
+    },
+    "miro": {
+      "description": "Miro hosted MCP — read, build, and comment on Miro boards",
+      "baseUrl": "https://mcp.miro.com/",
+      "auth": "oauth"
     }
   }
 }

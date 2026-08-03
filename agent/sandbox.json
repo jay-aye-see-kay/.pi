@@ -38,7 +38,8 @@
       "culture-amp-be.glean.com",
       "cf.mcp.atlassian.com",
       "mcp-9827.slack.com",
-      "slack.com"
+      "slack.com",
+      "mcp.miro.com"
     ],
     "deniedDomains": []
   },
