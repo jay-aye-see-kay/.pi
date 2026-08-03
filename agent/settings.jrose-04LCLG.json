@@ -1,19 +1,17 @@
 {
   "lastChangelogVersion": "0.83.0",
   "theme": "light",
-  "defaultProvider": "anthropic",
+  "defaultProvider": "github-copilot",
   "defaultModel": "claude-opus-5",
   "defaultThinkingLevel": "medium",
   "enabledModels": [
-    "github-copilot/claude-opus-4.8",
+    "github-copilot/claude-opus-5",
     "github-copilot/kimi-k2.7-code",
-    "github-copilot/claude-sonnet-4.6",
-    "anthropic/claude-opus-5",
     "anthropic/claude-fable-5"
   ],
   "subagentModels": {
     "github-copilot/kimi-k2.7-code": "good fast all-rounder, the workhorse",
-    "github-copilot/claude-opus-4.8": "slower and more expensive but great for hard problems and reasoning"
+    "github-copilot/claude-opus-5": "slower and more expensive but great for hard problems and reasoning"
   },
   "skills": [
     "~/.claude/skills"
