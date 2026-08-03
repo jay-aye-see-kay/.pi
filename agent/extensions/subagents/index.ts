@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
@@ -37,12 +37,10 @@ import {
  * subagent.
  *
  * Sandboxing: the child is spawned directly (bypassing the sandboxed bash tool),
- * so it would otherwise run unsandboxed. We require `npm:pi-sandbox` to be
- * installed in `~/.pi/agent/npm/node_modules` (where it lands when listed in
- * settings.json `packages`). The child spawns with the standard global config,
- * which loads pi-sandbox automatically from that packages list and sandboxes
- * ITSELF. In --mode json there is no UI, so pi-sandbox is deny-by-default:
- * anything not pre-allowed in sandbox.json is aborted rather than prompted.
+ * but it is NOT unsandboxed — it spawns with the standard global config and so
+ * sandboxes ITSELF from `~/.pi/agent/sandbox.json`. In --mode json there is no
+ * UI, so it is deny-by-default: anything not pre-allowed in sandbox.json is
+ * aborted rather than prompted.
  *
  * Resume: every result footer carries the subagent's session id (e.g.
  * `sub-1a2b3c4d`). Passing that id back as the `resume` parameter re-opens
@@ -99,12 +97,6 @@ export default function (pi: ExtensionAPI) {
       await openSubagentPicker(sessionDir, ctx);
     },
   });
-
-  // Require pi-sandbox to be installed (lands here when listed in settings.json `packages`).
-  // The child spawns with the standard global config, which loads it automatically.
-  // Never run subagents without the sandbox.
-  const sandboxPkg = join(getAgentDir(), "npm", "node_modules", "pi-sandbox");
-  if (!existsSync(sandboxPkg)) return;
 
   pi.registerTool({
     name: "subagent",
