@@ -36,7 +36,9 @@
       "mcp.exa.ai",
       "*.schemastore.org",
       "culture-amp-be.glean.com",
-      "cf.mcp.atlassian.com"
+      "cf.mcp.atlassian.com",
+      "mcp-9827.slack.com",
+      "slack.com"
     ],
     "deniedDomains": []
   },
