@@ -13,8 +13,7 @@
  * Each mode also nudges the thinking level (on models that support it;
  * no-op otherwise): investigate/plan -> high, none/act -> medium.
  *
- * Style defaults to ASD-STE100 in interactive sessions, none elsewhere
- * (print/json, e.g. subagent children).
+ * Style defaults to none; set it with /style.
  *
  * Usage:
  *   /mode              - open a selector
@@ -73,7 +72,7 @@ function supportsThinkingLevel(
 
 export default function intentExtension(pi: ExtensionAPI): void {
   let mode: Mode = "none";
-  let style: Style = "none"; // resolved in session_start
+  let style: Style = "none";
 
   function updateStatus(ctx: ExtensionContext): void {
     ctx.ui.setStatus("mode", mode === "none" ? undefined : mode.toUpperCase());
@@ -171,11 +170,6 @@ export default function intentExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async (_event, ctx) => {
-    // Interactive sessions get a style by default; print/json (e.g. subagent
-    // children) stay plain.
-    const defaultStyle: Style = ctx.hasUI ? "ASD-STE100" : "none";
-    style = defaultStyle;
-
     const entries = ctx.sessionManager.getEntries();
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i] as {
@@ -185,7 +179,7 @@ export default function intentExtension(pi: ExtensionAPI): void {
       };
       if (entry.type === "custom" && entry.customType === "intent") {
         mode = entry.data?.mode ?? "none";
-        style = entry.data?.style ?? defaultStyle;
+        style = entry.data?.style ?? "none";
         break;
       }
     }
