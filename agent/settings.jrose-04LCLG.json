@@ -17,14 +17,9 @@
     "~/.claude/skills"
   ],
   "quietStartup": true,
-  "env": {
-    "AWS_BEDROCK_FORCE_CACHE": "1",
-    "PI_CACHE_RETENTION": "long"
-  },
   "warnings": {
     "anthropicExtraUsage": false
   },
-  "showCacheMissNotices": true,
   "terminal": {
     "showTerminalProgress": true
   },
