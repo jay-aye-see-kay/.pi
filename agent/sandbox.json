@@ -39,7 +39,8 @@
       "cf.mcp.atlassian.com",
       "mcp-9827.slack.com",
       "slack.com",
-      "mcp.miro.com"
+      "mcp.miro.com",
+      "http-intake.logs.datadoghq.com"
     ],
     "deniedDomains": []
   },
