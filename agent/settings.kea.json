@@ -1,16 +1,12 @@
 {
-  "lastChangelogVersion": "0.82.1",
+  "lastChangelogVersion": "0.84.1",
   "theme": "light",
-  "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4.8",
-  "defaultThinkingLevel": "medium",
-  "enabledModels": [
-    "github-copilot/claude-opus-4.8",
-    "github-copilot/claude-sonnet-4.6"
-  ],
+  "defaultProvider": "opencode-go",
+  "defaultModel": "kimi-k3",
+  "defaultThinkingLevel": "max",
   "subagentModels": {
-    "github-copilot/kimi-k2.7-code": "good fast all-rounder, the workhorse",
-    "github-copilot/claude-opus-4.8": "slower and more expensive but great for hard problems and reasoning"
+    "opencode-go/kimi-k2.7-code": "good fast all-rounder, the workhorse",
+    "opencode-go/kimi-k3": "slower and more expensive but great for hard problems and reasoning"
   },
   "quietStartup": true,
   "terminal": {
