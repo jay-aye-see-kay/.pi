@@ -112,6 +112,10 @@
       "~/tmp"
     ],
     "denyWrite": [
+      "/bin",
+      "/sbin",
+      "/usr/bin",
+      "/usr/sbin",
       "*.key",
       "*.pem",
       ".env",
