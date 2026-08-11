@@ -280,8 +280,20 @@ export default function (pi: ExtensionAPI) {
 		{ grant: "cancel", key: "esc", label: "Deny — just this once" },
 	];
 	const grantLabel = (o: (typeof GRANT_OPTIONS)[number]) => `${o.label} [${o.key}]`;
+	let promptSeq = 0;
 
 	async function promptGrant(ctx: ExtensionContext, title: string): Promise<Grant> {
+		// Let alerting extensions know a human is being blocked on (see alerter.ts).
+		const attentionKey = `sandbox:${++promptSeq}`;
+		pi.events.emit("attention:request", { key: attentionKey, message: title });
+		try {
+			return await askGrant(ctx, title);
+		} finally {
+			pi.events.emit("attention:resolve", { key: attentionKey });
+		}
+	}
+
+	async function askGrant(ctx: ExtensionContext, title: string): Promise<Grant> {
 		if (ctx.mode !== "tui") {
 			// No custom components (rpc/json/print): fall back to the plain selector.
 			const choice = await ctx.ui.select(title, GRANT_OPTIONS.map(grantLabel));
