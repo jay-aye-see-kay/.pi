@@ -12,7 +12,11 @@
  * Presence is detected with ctx.ui.onTerminalInput: it sees every raw keystroke
  * before any component gets it (including while a modal dialog owns input), so
  * any keypress means "I'm here" — it cancels pending alerts and dismisses live
- * ones. The handler always returns undefined, so input is never consumed.
+ * ones. The handler returns undefined for real input, so it is never consumed.
+ *
+ * Focusing the terminal counts as being back too, even without a keypress. pi
+ * only enables focus reporting in fullscreen tuiMode, so we turn it on
+ * ourselves and consume the resulting sequences (see FOCUS_IN/FOCUS_OUT).
  *
  * Case 2 is driven by the shared extension event bus, so any extension can ask
  * for attention without depending on this file:
@@ -37,6 +41,14 @@ const PROMPT_MS = 10_000;
 const SNIPPET_LEN = 120;
 
 const ALERTER_CANDIDATES = ["/opt/homebrew/bin/alerter", "/usr/local/bin/alerter"];
+
+/** DEC mode 1004: the terminal reports FOCUS_IN/FOCUS_OUT when its focus
+ *  changes. Unsupported terminals ignore the mode set and simply never send the
+ *  sequences, so this degrades to keypress-only presence. */
+const ENABLE_FOCUS_REPORTING = "\x1b[?1004h";
+const DISABLE_FOCUS_REPORTING = "\x1b[?1004l";
+const FOCUS_IN = "\x1b[I";
+const FOCUS_OUT = "\x1b[O";
 
 type Payload = { title: string; subtitle: string; message: string };
 
@@ -74,6 +86,7 @@ export default function alerter(pi: ExtensionAPI) {
   let lastFired: string | undefined;
   let lastAssistantText = "";
   let offInput: (() => void) | undefined;
+  let focusReporting = false;
   let ctxRef: ExtensionContext | undefined;
 
   const group = (key: string) => `pi-${process.pid}-${key}`;
@@ -167,11 +180,24 @@ export default function alerter(pi: ExtensionAPI) {
 
   const sessionTitle = (ctx: ExtensionContext) => pi.getSessionName() || basename(ctx.cwd) || "pi";
 
-  /** Terminal *replies* (cell-size report, cursor position, focus in/out) arrive
-   *  on stdin exactly like keystrokes. Treating them as presence would silently
-   *  cancel every pending alert, so filter them out. */
-  const TERMINAL_REPLY = /^\x1b\[[?\d;]*[tRIOn]$/;
+  /** Terminal *replies* (cell-size report, cursor position) arrive on stdin
+   *  exactly like keystrokes. Treating them as presence would silently cancel
+   *  every pending alert, so filter them out. Focus reports are handled
+   *  separately — they are presence. */
+  const TERMINAL_REPLY = /^\x1b\[[?\d;]*[tRn]$/;
   const isHuman = (data: string) => data.length > 0 && !TERMINAL_REPLY.test(data);
+
+  /** You're back at the terminal: nothing pending is worth alerting about. */
+  function present(): void {
+    if (pending.size > 0) cancelAll();
+    if (live) dismiss();
+  }
+
+  function setFocusReporting(on: boolean): void {
+    if (on === focusReporting || !process.stdout.isTTY) return;
+    focusReporting = on;
+    process.stdout.write(on ? ENABLE_FOCUS_REPORTING : DISABLE_FOCUS_REPORTING);
+  }
 
   // ── Presence ──────────────────────────────────────────────────────────────
   pi.on("session_start", async (_e, ctx) => {
@@ -182,18 +208,27 @@ export default function alerter(pi: ExtensionAPI) {
     }
     offInput?.();
     offInput = ctx.ui.onTerminalInput((data) => {
-      // Any keypress means you're back at the terminal.
-      if (isHuman(data)) {
-        if (pending.size > 0) cancelAll();
-        if (live) dismiss();
+      // Switching to this terminal means you're back, even without typing. We
+      // asked for these sequences, so we consume them: in regular tuiMode
+      // nothing else knows what they are, and they'd land in the editor.
+      // (In fullscreen the TUI's own listener is registered first and consumes
+      // them before us, so this quietly does nothing there.)
+      if (data === FOCUS_IN) {
+        present();
+        return { consume: true };
       }
-      return undefined; // observer only — never consume input
+      if (data === FOCUS_OUT) return { consume: true };
+      // Any keypress means you're back at the terminal.
+      if (isHuman(data)) present();
+      return undefined; // observer only — never consume real input
     });
+    setFocusReporting(true);
   });
 
   pi.on("session_shutdown", async () => {
     cancelAll();
     dismiss();
+    setFocusReporting(false);
     offInput?.();
     offInput = undefined;
   });
@@ -268,7 +303,7 @@ export default function alerter(pi: ExtensionAPI) {
       ctx.ui.notify(
         [
           `alerter: ${enabled ? "on" : "off"} (${bin ?? "not found"})`,
-          `idle ${IDLE_MS / 1000}s • prompt ${PROMPT_MS / 1000}s`,
+          `idle ${IDLE_MS / 1000}s • prompt ${PROMPT_MS / 1000}s • focus reporting ${focusReporting ? "on" : "off"}`,
           `pending: ${pending.size ? [...pending.keys()].join(", ") : "none"}${live ? " • alert live" : ""}`,
           `last fired: ${lastFired ?? "never"}`,
           `last error: ${lastError ?? "none"}`,
