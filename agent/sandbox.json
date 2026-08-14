@@ -40,7 +40,13 @@
       "mcp-9827.slack.com",
       "slack.com",
       "mcp.miro.com",
-      "http-intake.logs.datadoghq.com"
+      "http-intake.logs.datadoghq.com",
+      "api.flakehub.com",
+      "flake-archives.flakehub.com",
+      "install.determinate.systems",
+      "registry.yarnpkg.com",
+      "releases.jetify.com",
+      "releases.jetpack.io"
     ],
     "deniedDomains": []
   },
