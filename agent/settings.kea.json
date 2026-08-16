@@ -1,9 +1,9 @@
 {
-  "lastChangelogVersion": "0.84.1",
+  "lastChangelogVersion": "0.84.2",
   "theme": "light",
   "defaultProvider": "opencode-go",
   "defaultModel": "kimi-k2.7-code",
-  "defaultThinkingLevel": "max",
+  "defaultThinkingLevel": "medium",
   "subagentModels": {
     "opencode-go/kimi-k2.7-code": "good fast all-rounder, the workhorse",
     "opencode-go/glm-5.2": "slower and more expensive but great for hard problems and reasoning"
