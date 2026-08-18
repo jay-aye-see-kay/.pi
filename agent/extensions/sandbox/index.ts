@@ -46,6 +46,7 @@ interface NetworkConfig {
 	allowLocalBinding?: boolean;
 	allowAllUnixSockets?: boolean;
 	allowUnixSockets?: string[];
+	allowMachLookup?: string[];
 }
 interface FilesystemConfig {
 	denyRead?: string[];
@@ -360,6 +361,7 @@ export default function (pi: ExtensionAPI) {
 				allowLocalBinding: cfg.network?.allowLocalBinding,
 				allowAllUnixSockets: cfg.network?.allowAllUnixSockets,
 				allowUnixSockets: cfg.network?.allowUnixSockets,
+				allowMachLookup: cfg.network?.allowMachLookup,
 			},
 			filesystem: {
 				denyRead: cfg.filesystem?.denyRead ?? [],
@@ -576,8 +578,9 @@ export default function (pi: ExtensionAPI) {
 			`  Project config: ${projectPath}`,
 			"",
 			"Network:",
-			`  Allowed: ${cfg.network?.allowedDomains?.join(", ") || "(none)"}`,
-			`  Denied:  ${cfg.network?.deniedDomains?.join(", ") || "(none)"}`,
+			`  Allowed:      ${cfg.network?.allowedDomains?.join(", ") || "(none)"}`,
+			`  Denied:       ${cfg.network?.deniedDomains?.join(", ") || "(none)"}`,
+			`  Mach lookup:  ${cfg.network?.allowMachLookup?.join(", ") || "(none)"}`,
 			...(sessionDomains.size ? [`  Session allowed: ${[...sessionDomains].join(", ")}`] : []),
 			...(sessionDeniedDomains.size ? [`  Session denied:  ${[...sessionDeniedDomains].join(", ")}`] : []),
 			"",

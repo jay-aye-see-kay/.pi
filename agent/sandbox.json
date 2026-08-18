@@ -4,6 +4,7 @@
   "network": {
     "allowLocalBinding": true,
     "allowAllUnixSockets": true,
+    "allowMachLookup": ["com.apple.FSEvents"],
     "allowedDomains": [
       "localhost",
       "github.com",
