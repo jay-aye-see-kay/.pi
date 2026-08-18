@@ -4,7 +4,9 @@
   "network": {
     "allowLocalBinding": true,
     "allowAllUnixSockets": true,
-    "allowMachLookup": ["com.apple.FSEvents"],
+    "allowMachLookup": [
+      "com.apple.FSEvents"
+    ],
     "allowedDomains": [
       "localhost",
       "github.com",
@@ -47,7 +49,9 @@
       "install.determinate.systems",
       "registry.yarnpkg.com",
       "releases.jetify.com",
-      "releases.jetpack.io"
+      "releases.jetpack.io",
+      "ca-py-proxy.meta.cultureamp.io",
+      "files.pythonhosted.org"
     ],
     "deniedDomains": []
   },
