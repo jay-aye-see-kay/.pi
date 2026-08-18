@@ -121,8 +121,11 @@ Key rule: the subagent can't see this conversation — state the outcome in \`go
         description: `All the information to help the subagent achieve its goal.`,
       }),
       model: Type.Optional(modelSchema),
+      // Keep this both optional and explicitly nullable. OpenAI's strict tool
+      // schemas expose every property as required, using null for omitted values;
+      // Anthropic can continue to omit it entirely.
       resume: Type.Optional(
-        Type.String({
+        Type.Union([Type.String(), Type.Null()], {
           description: `Optional. Resume a finished subagent by its id (e.g. 'sub-1a2b3c4d', from a prior result footer) to ask it a follow-up; \`goal\` becomes the follow-up question.
 
 Good for: pulling more information out of a subagent that already holds it — a detail from a page/file/search it loaded, or the reasoning behind a result it gave you.

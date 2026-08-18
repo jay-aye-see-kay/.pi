@@ -78,7 +78,7 @@ function callLines(theme: Theme, calls: ToolCall[]): string[] {
 }
 
 export function renderCall(
-  args: { resume?: string; model?: string; goal?: string },
+  args: { resume?: string | null; model?: string; goal?: string },
   defaultModel: string,
   theme: Theme,
 ): Text {
