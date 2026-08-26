@@ -51,7 +51,11 @@
       "releases.jetify.com",
       "releases.jetpack.io",
       "ca-py-proxy.meta.cultureamp.io",
-      "files.pythonhosted.org"
+      "files.pythonhosted.org",
+      "us.i.posthog.com",
+      "gw.production.api.cultureamp.com",
+      "login.auth.cultureamp.com",
+      "api.datadoghq.com"
     ],
     "deniedDomains": []
   },
