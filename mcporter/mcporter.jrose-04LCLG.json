@@ -1,14 +1,15 @@
 {
-  "$schema": "https://raw.githubusercontent.com/steipete/mcporter/main/mcporter.schema.json",
   "mcpServers": {
     "hotel": {
       "description": "Hotel MCP — Culture Amp internal/company docs (keep-alive: corpus loads async ~10s on first start)",
       "command": "hotel",
-      "args": ["mcp-server"],
-      "lifecycle": "keep-alive",
+      "args": [
+        "mcp-server"
+      ],
       "env": {
         "HOTEL_GITHUB_TOKEN": "${GITHUB_TOKEN}"
-      }
+      },
+      "lifecycle": "keep-alive"
     },
     "exa": {
       "description": "Exa hosted MCP — web search and page fetch",
@@ -34,6 +35,10 @@
     "miro": {
       "description": "Miro hosted MCP — read, build, and comment on Miro boards",
       "baseUrl": "https://mcp.miro.com/",
+      "auth": "oauth"
+    },
+    "cultureamp-mcp": {
+      "baseUrl": "https://gw.production.api.cultureamp.com/mcp/cultureamp",
       "auth": "oauth"
     }
   }
