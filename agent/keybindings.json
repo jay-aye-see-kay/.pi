@@ -35,9 +35,9 @@
   "app.session.new":    ["ctrl+l"],
   "app.session.resume": ["shift+ctrl+l"],
 
-  "// --- THINKING: ctrl+t cycle level, ctrl+shift+t toggle blocks ---": "",
-  "app.thinking.cycle":  ["ctrl+t"],
-  "app.thinking.toggle": ["ctrl+shift+t"],
+  "// --- THINKING: ctrl+u/ctrl+shift+u cycle level; ctrl+t toggles blocks ---": "",
+  "app.thinking.cycle":  ["ctrl+u"],
+  "app.thinking.toggle": ["ctrl+t"],
 
   "// --- DISPLACED: move ctrl+p / ctrl+n away from session picker toggles ---": "",
   "app.session.togglePath":         ["alt+p"],
