@@ -25,12 +25,10 @@
   "app.clear": ["ctrl+u"],
   "app.exit": ["ctrl+d"],
 
-  "// --- DISPLACED: move ctrl+p away from model cycling ---": "",
-  "app.model.cycleForward":  ["ctrl+y"],
-  "app.model.cycleBackward": ["shift+ctrl+y"],
-
-  "// --- MODEL SELECTOR: freed ctrl+l (use ctrl+y or /models instead) ---": "",
-  "app.model.select": [],
+  "// --- MODEL SELECTOR: ctrl+y opens the picker; cycling is disabled ---": "",
+  "app.model.cycleForward":  [],
+  "app.model.cycleBackward": [],
+  "app.model.select": ["ctrl+y"],
 
   "// --- SESSION: ctrl+l new, ctrl+shift+l resume ---": "",
   "app.session.new":    ["ctrl+l"],
