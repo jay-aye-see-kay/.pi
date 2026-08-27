@@ -55,7 +55,12 @@
       "us.i.posthog.com",
       "gw.production.api.cultureamp.com",
       "login.auth.cultureamp.com",
-      "api.datadoghq.com"
+      "api.datadoghq.com",
+      "ghcr.io",
+      "graphql.buildkite.com",
+      "pkg-containers.githubusercontent.com",
+      "__proxy-control",
+      "update.commonfate.io"
     ],
     "deniedDomains": []
   },
