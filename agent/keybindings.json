@@ -7,6 +7,7 @@
   "tui.editor.cursorLineStart": ["home", "ctrl+a"],
   "tui.editor.cursorLineEnd":   ["end", "ctrl+e"],
   "tui.editor.deleteWordBackward": ["ctrl+w", "alt+backspace"],
+  "tui.editor.deleteToLineStart": [], "// was ctrl-u, leaving that free for something": "",   
 
   "// --- EDITOR: ctrl+n/p for up/down in multiline editor ---": "",
   "tui.editor.cursorUp":   ["up", "ctrl+p"],
@@ -22,7 +23,7 @@
 
   "// --- INTERRUPT/EXIT: ctrl+c stops agent, ctrl+d quits when empty ---": "",
   "app.interrupt": ["escape", "ctrl+c"],
-  "app.clear": ["ctrl+u"],
+  "app.clear": ["ctrl+shift+backspace"],
   "app.exit": ["ctrl+d"],
 
   "// --- MODEL SELECTOR: ctrl+y opens the picker; cycling is disabled ---": "",
