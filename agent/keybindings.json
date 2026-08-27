@@ -35,7 +35,7 @@
   "app.session.new":    ["ctrl+l"],
   "app.session.resume": ["shift+ctrl+l"],
 
-  "// --- THINKING: ctrl+u/ctrl+shift+u cycle level; ctrl+t toggles blocks ---": "",
+  "// --- THINKING: ctrl+u cycles forward; ctrl+t toggles blocks ---": "",
   "app.thinking.cycle":  ["ctrl+u"],
   "app.thinking.toggle": ["ctrl+t"],
 
@@ -46,6 +46,11 @@
 
   "// --- INPUT: free ctrl+j for snippets extension (keep shift+enter for newline) ---": "",
   "tui.input.newLine": ["shift+enter"],
+
+  "// --- EXTENSION ACTIONS ---": "",
+  "ext.intent.cycleMode": ["shift+tab"],
+  "ext.snippets.expand": ["ctrl+j"],
+  "ext.thinking.cycleBackward": ["ctrl+shift+u"],
 
   "// --- TREE NAVIGATION ---": "",
   "app.tree.foldOrUp":   ["ctrl+left", "alt+left", "ctrl+h"],

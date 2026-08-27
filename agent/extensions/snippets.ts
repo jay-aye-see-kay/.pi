@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerNamedShortcut } from "./lib/named-shortcut";
 
 const SNIPPETS: Record<string, string> = {
   ["23"]: "give me 2-3 options",
@@ -12,7 +13,7 @@ const SNIPPETS: Record<string, string> = {
 };
 
 export default function (pi: ExtensionAPI) {
-  pi.registerShortcut("ctrl+j", {
+  registerNamedShortcut(pi, "ext.snippets.expand", {
     description: "Expand snippet trigger (e.g. `tdd` → full instruction)",
     handler: async (ctx) => {
       const text = ctx.ui.getEditorText();

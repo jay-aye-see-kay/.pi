@@ -1,8 +1,9 @@
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerNamedShortcut } from "./lib/named-shortcut";
 
 export default function thinkingCycleExtension(pi: ExtensionAPI): void {
-  pi.registerShortcut("ctrl+shift+u", {
+  registerNamedShortcut(pi, "ext.thinking.cycleBackward", {
     description: "Cycle thinking level backward",
     handler: async (ctx) => {
       if (!ctx.model?.reasoning) {

@@ -2,3 +2,4 @@
     - should start simple and follow pi idioms
     - should pass type checking (`cd ~/.pi/agent/extensions/ && tsc --noEmit`) (`tsc` available on $PATH)
     - where practical, should be a file not a dir in extensions/
+    - extension keyboard shortcuts should use `registerNamedShortcut` from `agent/extensions/lib/named-shortcut.ts`; assign the `ext.*` action in `agent/keybindings.json` instead of calling `pi.registerShortcut` directly

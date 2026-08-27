@@ -26,6 +26,7 @@
 
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { registerNamedShortcut } from "./lib/named-shortcut";
 
 type Mode = "none" | "investigate" | "plan" | "act";
 type Style = "none" | "ASD-STE100" | "caveman";
@@ -152,7 +153,7 @@ export default function intentExtension(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerShortcut("shift+tab", {
+  registerNamedShortcut(pi, "ext.intent.cycleMode", {
     description: "Cycle mode (none/investigate/plan/act)",
     handler: async (ctx) => {
       const next = MODES[(MODES.indexOf(mode) + 1) % MODES.length] ?? "none";
