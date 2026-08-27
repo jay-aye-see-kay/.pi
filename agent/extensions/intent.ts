@@ -12,6 +12,7 @@
  *
  * Each mode also nudges the thinking level (on models that support it;
  * no-op otherwise): investigate/plan -> high, none/act -> medium.
+ * Models whose id starts with gpt- always receive medium from this extension.
  *
  * Style defaults to none; set it with /style.
  *
@@ -82,12 +83,16 @@ export default function intentExtension(pi: ExtensionAPI): void {
     pi.appendEntry("intent", { mode, style });
   }
 
+  function applyThinkingLevel(model: ExtensionContext["model"]): void {
+    const level = model?.id.startsWith("gpt-") ? "medium" : MODE_THINKING[mode];
+    if (supportsThinkingLevel(model, level)) pi.setThinkingLevel(level);
+  }
+
   function setMode(next: Mode, ctx: ExtensionContext): void {
     mode = next;
     updateStatus(ctx);
     persist();
-    const level = MODE_THINKING[next];
-    if (supportsThinkingLevel(ctx.model, level)) pi.setThinkingLevel(level);
+    applyThinkingLevel(ctx.model);
     ctx.ui.notify(mode === "none" ? "Mode: none" : `Mode: ${mode}`, "info");
   }
 
@@ -155,6 +160,10 @@ export default function intentExtension(pi: ExtensionAPI): void {
     },
   });
 
+  pi.on("model_select", async (event) => {
+    applyThinkingLevel(event.model);
+  });
+
   pi.on("before_agent_start", async () => {
     const lines: string[] = [];
     if (mode !== "none") lines.push(`  Mode: ${MODE_TEXT[mode]}`);
@@ -184,5 +193,6 @@ export default function intentExtension(pi: ExtensionAPI): void {
       }
     }
     updateStatus(ctx);
+    applyThinkingLevel(ctx.model);
   });
 }
