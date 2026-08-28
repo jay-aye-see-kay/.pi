@@ -2,10 +2,16 @@
   "name": "pi-sandbox-local",
   "private": true,
   "type": "module",
-  "pi": { "extensions": ["./index.ts"] },
-  "scripts": { "postinstall": "patch-package" },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "postinstall": "patch-package"
+  },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.66"
+    "@anthropic-ai/sandbox-runtime": "^0.0.74"
   },
   "devDependencies": {
     "patch-package": "^8.0.0"
