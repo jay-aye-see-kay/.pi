@@ -86,6 +86,7 @@
       "~/.cache",
       "~/.claude",
       "~/.claude.json",
+      "~/.codex/config.toml",
       "~/.config",
       "~/.duckdb",
       "~/.gem_cache",
