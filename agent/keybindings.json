@@ -50,6 +50,7 @@
   "// --- EXTENSION ACTIONS ---": "",
   "ext.intent.cycleMode": ["shift+tab"],
   "ext.snippets.expand": ["ctrl+j"],
+  "ext.subagent.toggle": ["ctrl+shift+a"],
   "ext.thinking.cycleBackward": ["ctrl+shift+u"],
 
   "// --- TREE NAVIGATION ---": "",

@@ -42,10 +42,11 @@ export function summarizeCall(args: unknown): string {
  * Shown while a subagent is running (with a spinner prefix) and after
  * each call completes (with cumulative session totals).
  */
-export function footerStatus(t: SessionTotals, running: boolean): string {
+export function footerStatus(t: SessionTotals, running: boolean, enabled: boolean): string {
   const prefix = running ? "\u25b6 " : "";
-  const sub = `${t.count} sub${t.count === 1 ? "" : "s"}`;
-  return `${prefix}\u{1f916} ${sub} \u00b7 $${t.cost.toFixed(4)}`;
+  const mode = enabled ? "\u{1f465}" : "\u{1f464}";
+  if (t.count === 0 && t.cost === 0) return `${prefix}${mode}`;
+  return `${prefix}${mode} ${t.count} \u00b7 $${t.cost.toFixed(4)}`;
 }
 
 /** Plain-text telemetry for the model-facing onUpdate content (no theme). */

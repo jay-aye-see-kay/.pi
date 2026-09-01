@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdirSync } from "node:fs";
@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import type { SessionTotals, SubStats } from "./types";
+import { registerNamedShortcut } from "../lib/named-shortcut";
 import { readSubagentModels } from "./config";
 import { buildPrompt, runSubagent, SESSION_ID_RE } from "./runner";
 import { findSessionDir, openSubagentPicker, stampBranchedFrom } from "./sessions";
@@ -81,17 +82,98 @@ export default function (pi: ExtensionAPI) {
       ? Type.Literal(models[0].id, { description: modelDescription })
       : Type.Union(modelLiterals, { description: modelDescription });
 
-  // Reset on each session (new / resume / fork / reload).
+  interface SubagentState {
+    enabled: boolean;
+  }
+
+  const toolName = "subagent";
+  const stateEntry = "subagent-config";
   let totals: SessionTotals = { count: 0, cost: 0, turns: 0 };
-  pi.on("session_start", () => {
+
+  const isEnabled = (): boolean => pi.getActiveTools().includes(toolName);
+
+  const updateStatus = (ctx: ExtensionContext, running = false, shownTotals = totals): void => {
+    ctx.ui.setStatus("subagents", footerStatus(shownTotals, running, isEnabled()));
+  };
+
+  const setEnabled = (
+    enabled: boolean,
+    ctx: ExtensionContext,
+    persist = true,
+  ): boolean => {
+    const active = pi.getActiveTools();
+    const wasEnabled = active.includes(toolName);
+    if (enabled !== wasEnabled) {
+      pi.setActiveTools(
+        enabled
+          ? [...new Set([...active, toolName])]
+          : active.filter((name) => name !== toolName),
+      );
+      if (persist) pi.appendEntry<SubagentState>(stateEntry, { enabled });
+    }
+    updateStatus(ctx);
+    return enabled !== wasEnabled;
+  };
+
+  const restoreState = (ctx: ExtensionContext): void => {
+    const entries = ctx.sessionManager.getBranch();
+    let enabled = true;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      if (entry?.type === "custom" && entry.customType === stateEntry) {
+        const state = entry.data as SubagentState | undefined;
+        if (typeof state?.enabled === "boolean") enabled = state.enabled;
+        break;
+      }
+    }
+    setEnabled(enabled, ctx, false);
+  };
+
+  pi.on("session_start", (_event, ctx) => {
     totals = { count: 0, cost: 0, turns: 0 };
+    restoreState(ctx);
   });
+  pi.on("session_tree", (_event, ctx) => restoreState(ctx));
 
   const sessionDir = join(getAgentDir(), "subagent-sessions");
 
+  pi.registerCommand("subagent", {
+    description: "Enable, disable, or show the subagent tool",
+    getArgumentCompletions: (prefix) => {
+      const options = ["on", "off", "toggle", "status"];
+      const matches = options
+        .filter((option) => option.startsWith(prefix.toLowerCase()))
+        .map((option) => ({ value: option, label: option }));
+      return matches.length > 0 ? matches : null;
+    },
+    handler: async (args, ctx) => {
+      const command = args.trim().toLowerCase();
+      let next: boolean | undefined;
+      if (!command || command === "toggle") next = !isEnabled();
+      else if (command === "on" || command === "enable") next = true;
+      else if (command === "off" || command === "disable") next = false;
+      else if (command !== "status") {
+        ctx.ui.notify("Usage: /subagent [status|on|off|toggle]", "warning");
+        return;
+      }
+
+      if (next !== undefined) setEnabled(next, ctx);
+      else updateStatus(ctx);
+      ctx.ui.notify(`Subagent tool ${isEnabled() ? "enabled" : "disabled"}`, "info");
+    },
+  });
+
+  registerNamedShortcut(pi, "ext.subagent.toggle", {
+    description: "Toggle the subagent tool",
+    handler: async (ctx) => {
+      setEnabled(!isEnabled(), ctx);
+      ctx.ui.notify(`Subagent tool ${isEnabled() ? "enabled" : "disabled"}`, "info");
+    },
+  });
+
   // Browse & resume subagent sessions in the normal UI (they live in their own
   // dir, so they never appear in the built-in /resume, pi -r, or pi -c).
-  pi.registerCommand("subagents", {
+  pi.registerCommand("resume-subagents", {
     description: "Browse and resume subagent sessions",
     handler: async (_args, ctx) => {
       await openSubagentPicker(sessionDir, ctx);
@@ -177,7 +259,15 @@ Key rule: resume to get information not to do work.`,
         (stats) => {
           onUpdate?.({ content: [{ type: "text", text: plainTelemetry(stats) }], details: stats });
           // Show a live footer indicator while the subagent is running.
-          ctx.ui.setStatus("subagents", footerStatus({ ...totals, cost: totals.cost + stats.cost, turns: totals.turns + stats.turns }, true));
+          updateStatus(
+            ctx,
+            true,
+            {
+              count: totals.count + 1,
+              cost: totals.cost + stats.cost,
+              turns: totals.turns + stats.turns,
+            },
+          );
         },
       );
 
@@ -187,15 +277,18 @@ Key rule: resume to get information not to do work.`,
       stampBranchedFrom(runDir, sessionId, parentId);
 
       if (outcome.aborted) {
+        updateStatus(ctx);
         return failure(`Subagent ${sessionId} aborted.`, { ...stats, error: "aborted" });
       }
       if (outcome.spawnError) {
+        updateStatus(ctx);
         return failure(`Failed to launch subagent: ${outcome.spawnError.message}`, {
           ...stats,
           error: outcome.spawnError.message,
         });
       }
       if (exitCode !== 0 && !finalText) {
+        updateStatus(ctx);
         return failure(`Subagent ${sessionId} failed (exit ${exitCode}).\n${outcome.stderr.slice(-1500)}`, {
           ...stats,
           error: `exit ${exitCode}`,
@@ -207,7 +300,7 @@ Key rule: resume to get information not to do work.`,
       totals.count += 1;
       totals.cost += stats.cost;
       totals.turns += stats.turns;
-      ctx.ui.setStatus("subagents", footerStatus(totals, false));
+      updateStatus(ctx);
 
       const body = finalText || "(subagent produced no final text)";
       const footer = `[subagent ${sessionId} \u00b7 ${plural(stats.turns, "turn")} \u00b7 $${stats.cost.toFixed(4)}]`;
