@@ -60,7 +60,8 @@
       "graphql.buildkite.com",
       "pkg-containers.githubusercontent.com",
       "__proxy-control",
-      "update.commonfate.io"
+      "update.commonfate.io",
+      "pkg-npm.githubusercontent.com"
     ],
     "deniedDomains": []
   },
