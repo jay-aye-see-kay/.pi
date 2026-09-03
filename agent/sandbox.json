@@ -61,7 +61,9 @@
       "pkg-containers.githubusercontent.com",
       "__proxy-control",
       "update.commonfate.io",
-      "pkg-npm.githubusercontent.com"
+      "pkg-npm.githubusercontent.com",
+      "bookslikeyou.com",
+      "openrouter.ai"
     ],
     "deniedDomains": []
   },
