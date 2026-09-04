@@ -1,3 +1,103 @@
+diff --git a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/linux-sandbox-utils.js b/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/linux-sandbox-utils.js
+index 185a9bd..55c5209 100644
+--- a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/linux-sandbox-utils.js
++++ b/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/linux-sandbox-utils.js
+@@ -182,27 +182,11 @@ async function linuxGetMandatoryDenyPaths(ripgrepConfig = { command: 'rg' }, max
+         // Dangerous directories in CWD
+         ...dangerousDirectories.map(d => path.resolve(cwd, d)),
+     ];
+-    // Git hooks and config are only denied when .git exists as a directory.
+-    // In git worktrees, .git is a file (e.g., "gitdir: /path/..."), so
+-    // .git/hooks can never exist — denying it would cause bwrap to fail.
+-    // When .git doesn't exist at all, mounting at .git would block its
+-    // creation and break git init.
+-    const dotGitPath = path.resolve(cwd, '.git');
+-    let dotGitIsDirectory = false;
+-    try {
+-        dotGitIsDirectory = fs.statSync(dotGitPath).isDirectory();
+-    }
+-    catch {
+-        // .git doesn't exist
+-    }
+-    if (dotGitIsDirectory) {
+-        // Git hooks always blocked for security
+-        denyPaths.push(path.resolve(cwd, '.git/hooks'));
+-        // Git config conditionally blocked based on allowGitConfig setting
+-        if (!allowGitConfig) {
+-            denyPaths.push(path.resolve(cwd, '.git/config'));
+-        }
+-    }
++    // PATCHED (pi-sandbox-local): no hardcoded .git denies.
++    // Upstream denies .git/hooks (always) and .git/config (unless
++    // filesystem.allowGitConfig) in cwd and in nested repos found via ripgrep,
++    // resolved against process.cwd() — inconsistent and breaks when running
++    // from a subdirectory of a repo.
+     // Build iglob args for all patterns in one ripgrep call
+     const iglobArgs = [];
+     for (const fileName of DANGEROUS_FILES) {
+@@ -211,12 +195,6 @@ async function linuxGetMandatoryDenyPaths(ripgrepConfig = { command: 'rg' }, max
+     for (const dirName of dangerousDirectories) {
+         iglobArgs.push('--iglob', `**/${dirName}/**`);
+     }
+-    // Git hooks always blocked in nested repos
+-    iglobArgs.push('--iglob', '**/.git/hooks/**');
+-    // Git config conditionally blocked in nested repos
+-    if (!allowGitConfig) {
+-        iglobArgs.push('--iglob', '**/.git/config');
+-    }
+     // Single ripgrep call to find all dangerous paths in subdirectories
+     // Limit depth for performance - deeply nested dangerous files are rare
+     // and the security benefit doesn't justify the traversal cost
+@@ -240,24 +218,12 @@ async function linuxGetMandatoryDenyPaths(ripgrepConfig = { command: 'rg' }, max
+         const absolutePath = path.resolve(cwd, match);
+         // File inside a dangerous directory -> add the directory path
+         let foundDir = false;
+-        for (const dirName of [...dangerousDirectories, '.git']) {
++        for (const dirName of dangerousDirectories) {
+             const normalizedDirName = normalizeCaseForComparison(dirName);
+             const segments = absolutePath.split(path.sep);
+             const dirIndex = segments.findIndex(s => normalizeCaseForComparison(s) === normalizedDirName);
+             if (dirIndex !== -1) {
+-                // For .git, we want hooks/ or config, not the whole .git dir
+-                if (dirName === '.git') {
+-                    const gitDir = segments.slice(0, dirIndex + 1).join(path.sep);
+-                    if (match.includes('.git/hooks')) {
+-                        denyPaths.push(path.join(gitDir, 'hooks'));
+-                    }
+-                    else if (match.includes('.git/config')) {
+-                        denyPaths.push(path.join(gitDir, 'config'));
+-                    }
+-                }
+-                else {
+-                    denyPaths.push(segments.slice(0, dirIndex + 1).join(path.sep));
+-                }
++                denyPaths.push(segments.slice(0, dirIndex + 1).join(path.sep));
+                 foundDir = true;
+                 break;
+             }
+diff --git a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js b/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js
+index e6d9fb6..2e8ab51 100644
+--- a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js
++++ b/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js
+@@ -23,14 +23,10 @@ export function macGetMandatoryDenyPatterns(allowGitConfig = false) {
+         denyPaths.push(path.resolve(cwd, dirName));
+         denyPaths.push(`**/${dirName}/**`);
+     }
+-    // Git hooks are always blocked for security
+-    denyPaths.push(path.resolve(cwd, '.git/hooks'));
+-    denyPaths.push('**/.git/hooks/**');
+-    // Git config - conditionally blocked based on allowGitConfig setting
+-    if (!allowGitConfig) {
+-        denyPaths.push(path.resolve(cwd, '.git/config'));
+-        denyPaths.push('**/.git/config');
+-    }
++    // PATCHED (pi-sandbox-local): no hardcoded .git denies.
++    // Upstream unconditionally blocks .git/hooks and (unless filesystem.allowGitConfig)
++    // .git/config, resolved against process.cwd() — inconsistent and breaks when
++    // running from a subdirectory of a repo.
+     return [...new Set(denyPaths)];
+ }
+ const sessionSuffix = `_${Math.random().toString(36).slice(2, 11)}_SBX`;
 diff --git a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js b/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js
 index 32831bf..2635628 100644
 --- a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js

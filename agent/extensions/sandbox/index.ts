@@ -24,8 +24,10 @@
  *   <cwd>/.pi/sandbox.json     (project)
  *
  * The bundled patch (patches/) neutralises the library's hardcoded
- * DANGEROUS_FILES / DANGEROUS_DIRECTORIES mandatory write-denies (which
- * blocked .vscode/.idea/.claude/* and various dotfiles, see issue #159).
+ * mandatory write-denies: DANGEROUS_FILES / DANGEROUS_DIRECTORIES (which
+ * blocked .vscode/.idea/.claude/* and various dotfiles, see issue #159) and
+ * the unconditional .git/hooks + .git/config denies (cwd-relative + glob,
+ * inconsistent and broken when running from a repo subdirectory).
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
