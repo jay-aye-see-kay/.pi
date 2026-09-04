@@ -93,6 +93,7 @@
       "~/.duckdb",
       "~/.gem_cache",
       "~/.gradle",
+      "~/.lima",
       "~/.local",
       "~/.mcporter",
       "~/.moon",
