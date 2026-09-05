@@ -73,6 +73,7 @@
       "~/Library/Keychains",
       "~/.ssh",
       "~/.gnupg",
+      "~/obsidian/notes/personal/",
       "~/.aws/credentials"
     ],
     "allowRead": [
