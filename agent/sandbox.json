@@ -63,7 +63,8 @@
       "update.commonfate.io",
       "pkg-npm.githubusercontent.com",
       "bookslikeyou.com",
-      "openrouter.ai"
+      "openrouter.ai",
+      "dx-insights.usw2.dev-us.cultureamp.io"
     ],
     "deniedDomains": []
   },
@@ -116,7 +117,8 @@
       "~/hotel",
       "~/nixfiles",
       "~/obsidian",
-      "~/tmp"
+      "~/tmp",
+      "~/work"
     ],
     "allowWrite": [
       ".",
@@ -147,7 +149,8 @@
       "~/Library/pnpm",
       "~/go",
       "~/hotel",
-      "~/tmp"
+      "~/tmp",
+      "~/work"
     ],
     "denyWrite": [
       "/bin",
