@@ -2,19 +2,18 @@
   "lastChangelogVersion": "0.85.1",
   "theme": "light",
   "defaultProvider": "github-copilot",
-  "defaultModel": "gpt-5.6-sol",
+  "defaultModel": "claude-opus-4.8",
   "defaultThinkingLevel": "medium",
   "enabledModels": [
-    "github-copilot/gpt-5.6-sol",
-    "github-copilot/gpt-5.6-terra",
-    "github-copilot/claude-opus-5",
-    "github-copilot/kimi-k2.7-code",
-    "github-copilot/kimi-k3",
-    "anthropic/claude-fable-5"
+    "github-copilot/claude-opus-4.8",
+    "anthropic/claude-fable-5-1",
+    "github-copilot/gpt-5.6-luna"
   ],
   "subagentModels": {
-    "github-copilot/kimi-k2.7-code": "good fast all-rounder, the workhorse",
-    "github-copilot/claude-opus-5": "slower and more expensive but great for hard problems and reasoning"
+    "github-copilot/gpt-5.6-luna": "default. fast, cheap. scoped grunt work: search/locate, single-fact lookups, summarising logs or diffs, mechanical edits, running tests and triaging. keep tasks tight.",
+    "github-copilot/gpt-5.6-terra": "mid tier, fast. more than a lookup but not top-model-hard: multi-step exploration, moderate refactors, code review on a contained change, digesting a big artifact. escalate to opus/sol only if it struggles.",
+    "github-copilot/claude-opus-5": "top tier for open-ended hard problems: gnarly debugging, design tradeoffs, reviewing a diff for failure cases, judgement on underspecified questions. broad reasoner. slow, expensive.",
+    "github-copilot/gpt-5.6-sol": "top tier for well-specified hard work: large systematic refactors, exhaustive multi-file search, precise spec-driven implementation. terse, literal, methodical. pick over opus when the task is clearly defined but big or fiddly."
   },
   "skills": [
     "~/.claude/skills"
