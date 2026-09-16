@@ -4,7 +4,7 @@
 
 #wol_devex `C02NUQ65U2C` (camp channel — Hotel + Agentic Eng) · #team_hotel `C0B97KTKH25` (my team) · #team_agentic_engineering `C0BAJEK3HH8` (sister team).
 
-Others: `slack_search_channels`; for private channels it often returns nothing — fall back to `search_public_and_private`. Must be a member to post (`not_in_channel`).
+Others: `slack_search_channels`; for private channels it often returns nothing — fall back to `slack_search_public_and_private`. Must be a member to post (`not_in_channel`).
 
 ## People
 

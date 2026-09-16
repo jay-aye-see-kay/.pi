@@ -1,6 +1,6 @@
 # Sending
 
-`message` = standard markdown (**no Block Kit**) + `channel_id` (DM = `user_id` as `channel_id`). **Draft first** unless the user approved the exact text. `send_message` returns a permalink — surface it.
+`message` = standard markdown (**no Block Kit**) + `channel_id` (DM = `user_id` as `channel_id`). **Draft first** unless the user approved the exact text. `slack_send_message` returns a permalink — surface it.
 
 ```bash
 mcporter call slack.slack_send_message_draft channel_id=C… message="Draft text"   # recommended

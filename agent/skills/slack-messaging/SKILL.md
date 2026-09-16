@@ -6,18 +6,18 @@ only-on-hosts: ["jrose-04LCLG"]
 
 # Slack via mcporter
 
-`mcporter call slack.<tool> key=value ...` → JSON with a markdown `results` field.
+`mcporter call slack.<tool> key=value ...` → JSON with a markdown `results` field. Every tool name is prefixed `slack_` (e.g. `slack.slack_search_public_and_private`).
 
 | You want to… | Move |
 |---|---|
-| Find when **I** said X | `search_public_and_private query="from:me X"` |
+| Find when **I** said X | `slack_search_public_and_private query="from:me X"` |
 | **What's waiting on me** today | see [daily triage](references/searching.md#daily-triage) |
-| Any conversation about X | `search_public_and_private query="X"` |
-| Context from a Slack **link** | parse link → `read_thread channel_id=C… message_ts=…` (needs `message_ts`, **not** `thread_ts`; use the URL's `thread_ts` as `message_ts`) |
-| Message a person/team | resolve ID → `send_message_draft` |
-| Send to **#channel** (leading # = channel name) | resolve channel ID → `send_message_draft` |
-| Reply to a thread **link** | parse link → `send_message thread_ts=…` |
-| Find a **channel ID** by name | `search_channels query="name" response_format=concise` |
+| Any conversation about X | `slack_search_public_and_private query="X"` |
+| Context from a Slack **link** | parse link → `slack_read_thread channel_id=C… message_ts=…` (needs `message_ts`, **not** `thread_ts`; use the URL's `thread_ts` as `message_ts`) |
+| Message a person/team | resolve ID → `slack_send_message_draft` |
+| Send to **#channel** (leading # = channel name) | resolve channel ID → `slack_send_message_draft` |
+| Reply to a thread **link** | parse link → `slack_send_message thread_ts=…` |
+| Find a **channel ID** by name | `slack_search_channels query="name" response_format=concise` |
 
 Details: [searching](references/searching.md) · [sending](references/sending.md) · [formatting](references/formatting.md) · [directory](references/directory.md).
 

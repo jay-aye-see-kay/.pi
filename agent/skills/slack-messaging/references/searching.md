@@ -4,7 +4,7 @@ Use `slack_search_public_and_private` (public + private + DMs). `slack_search_pu
 
 ## Gotchas (cost me retries)
 
-- **`from:<name>` returns nothing** — only `from:me` or `from:<@U123>` work. Resolve the ID first (`search_users`, or [directory](directory.md)).
+- **`from:<name>` returns nothing** — only `from:me` or `from:<@U123>` work. Resolve the ID first (`slack_search_users`, or [directory](directory.md)).
 - **Concise output mangles timestamps** (renders as garbage like `56518539-08-15`). For real times / ordering use the default *full* format **and** `sort=timestamp`. Concise is for keyword-scanning only.
 - **Always redirect to a file** before parsing — `mcporter … | python3 … | head` breaks the pipe (exit 1). Use `> /tmp/s.json` then `jq -r '.results'`.
 
@@ -20,13 +20,13 @@ mcporter call slack.slack_search_public_and_private query="with:me after:$SINCE"
 mcporter call slack.slack_search_public_and_private query="<@$ME> after:$SINCE" sort=timestamp > /tmp/t_mentions.json
 ```
 
-**`with:me` is the workhorse** — it surfaces *other people's* messages in conversations you're in, so filtering out your own (`grep -v "($ME)"`) and bots = things said around you today, including replies in your threads that never @-mentioned you. Add the `<@you>` pass to catch mentions in channels you haven't otherwise touched. `to:me` = DMs to you **and** @mentions (a bot-heavy subset of the above). For a DM's full back-and-forth, grab the `channel_id` (`D…`) and `read_channel`. Delegate the sweep to a subagent that returns only actionable items + permalinks.
+**`with:me` is the workhorse** — it surfaces *other people's* messages in conversations you're in, so filtering out your own (`grep -v "($ME)"`) and bots = things said around you today, including replies in your threads that never @-mentioned you. Add the `<@you>` pass to catch mentions in channels you haven't otherwise touched. `to:me` = DMs to you **and** @mentions (a bot-heavy subset of the above). For a DM's full back-and-forth, grab the `channel_id` (`D…`) and `slack_read_channel`. Delegate the sweep to a subagent that returns only actionable items + permalinks.
 
 Slack can't literally query "waiting on me", but `with:me` sorted by time gets you there: a thread whose latest non-you message is newer than your latest message in it is waiting on you.
 
 ## Token discipline
 
-- Scan with `response_format=concise include_context=false limit=20`; only expand real hits (`include_context=true` or `read_thread`).
+- Scan with `response_format=concise include_context=false limit=20`; only expand real hits (`include_context=true` or `slack_read_thread`).
 - Save & grep instead of dumping:
   ```bash
   mcporter call slack.slack_search_public_and_private query="from:me incident rollback" limit=20 include_context=false > /tmp/s.json
@@ -58,6 +58,6 @@ mcporter call slack.slack_read_thread channel_id="$cid" message_ts="$ts"
 
 ## Other read tools
 
-`read_channel channel_id=C… limit=30 response_format=concise` · `read_thread channel_id=C… message_ts=…` · `read_user_profile user_id=U…` · `list_channel_members channel_id=C… response_format=ids_only` · `read_file file_id=F…` · `search_channels query=…` · `search_users query=…`.
+`slack_read_channel channel_id=C… limit=30 response_format=concise` · `slack_read_thread channel_id=C… message_ts=…` · `slack_read_user_profile user_id=U…` · `slack_list_channel_members channel_id=C… response_format=ids_only` · `slack_read_file file_id=F…` · `slack_search_channels query=…` · `slack_search_users query=…`.
 
-`search_channels` often returns nothing for **private** channels — fall back to `search_public_and_private` (message content reveals the channel ID).
+`slack_search_channels` often returns nothing for **private** channels — fall back to `slack_search_public_and_private` (message content reveals the channel ID).
