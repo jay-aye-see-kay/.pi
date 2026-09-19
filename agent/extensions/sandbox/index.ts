@@ -222,8 +222,18 @@ function sandboxedBashOps(shellPath?: string): BashOperations {
 
 /** Pull a blocked write path out of a bash "Operation not permitted" error. */
 function blockedWritePath(output: string): string | null {
-	const m = output.match(/(?:\/bin\/bash|bash|sh): (?:line \d+: )?(\/[^\s:]+): Operation not permitted/);
-	return m ? m[1] : null;
+	// bash's own redirection failures:
+	//   bash: /path: Operation not permitted
+	const shell = output.match(/(?:\/bin\/bash|bash|sh): (?:line \d+: )?(\/[\s\S]+?): Operation not permitted/);
+	if (shell) return shell[1];
+	// tool-reported failures (touch, tee, ...):
+	//   touch: /path: Operation not permitted
+	const tool = output.match(/^\w[\w./-]*: (\/.+?): Operation not permitted/m);
+	if (tool) return tool[1];
+	// git's lock-file failures:
+	//   fatal: Unable to create '/path/.git/index.lock': Operation not permitted
+	const git = output.match(/Unable to create '([^']+)': Operation not permitted/);
+	return git ? git[1] : null;
 }
 
 // ── Extension ─────────────────────────────────────────────────────────────────
