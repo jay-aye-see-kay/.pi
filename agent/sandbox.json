@@ -64,7 +64,9 @@
       "pkg-npm.githubusercontent.com",
       "bookslikeyou.com",
       "openrouter.ai",
-      "dx-insights.usw2.dev-us.cultureamp.io"
+      "dx-insights.usw2.dev-us.cultureamp.io",
+      "registry.opentofu.org",
+      "flakehub.com"
     ],
     "deniedDomains": []
   },
