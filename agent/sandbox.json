@@ -71,11 +71,12 @@
   "filesystem": {
     "denyRead": [
       "~",
-      "~/Library/Keychains",
-      "~/.ssh",
+      "~/.aws/credentials",
+      "~/.aws/login",
       "~/.gnupg",
-      "~/obsidian/notes/personal/",
-      "~/.aws/credentials"
+      "~/.ssh",
+      "~/Library/Keychains",
+      "~/obsidian/notes/personal/"
     ],
     "allowRead": [
       ".",
