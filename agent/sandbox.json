@@ -63,10 +63,17 @@
       "update.commonfate.io",
       "pkg-npm.githubusercontent.com",
       "bookslikeyou.com",
-      "openrouter.ai",
       "dx-insights.usw2.dev-us.cultureamp.io",
+      "flakehub.com",
+      "index.rubygems.org",
+      "openrouter.ai",
+      "packages.confluent.io",
+      "playwright.download.prss.microsoft.com",
       "registry.opentofu.org",
-      "flakehub.com"
+      "repo.maven.apache.org",
+      "plugins-artifacts.gradle.org",
+      "plugins.gradle.org",
+      "services.gradle.org"
     ],
     "deniedDomains": []
   },
