@@ -11,7 +11,7 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "^0.0.74"
+    "@anthropic-ai/sandbox-runtime": "0.0.77"
   },
   "devDependencies": {
     "patch-package": "^8.0.0"
