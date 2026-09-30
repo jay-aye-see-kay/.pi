@@ -14,12 +14,12 @@
  *     allowRead/allowWrite/denyWrite. Grants can be kept for the session, the
  *     project, or all projects. When a bash command is blocked by the OS sandbox,
  *     the library's violation log (seatbelt log on macOS, seccomp monitor on
- *     Linux) says what was denied. For failed commands the violations are
- *     appended to the tool result for the model, and blocked writes are
- *     offered as a grant + retry. Bash output is never parsed: only the exit
- *     code and the library's per-command violation log are consulted. Reads
- *     are never offered from bash (directory scans probe denied paths
- *     harmlessly); grant them via the read tool or config. Denying a host/path is remembered for the session
+ *     Linux) says what was denied; for failed commands it is appended to the
+ *     tool result for the model. (The macOS log monitor needs admin rights;
+ *     without them it silently reports nothing.) Bash output is never parsed.
+ *     To get a blocked path opened, the model calls the
+ *     `sandbox_request_access` tool, which prompts the user; the model then
+ *     re-runs the command itself. Denying a host/path is remembered for the session
  *     (chatty endpoints otherwise re-prompt on every connection). Prompt keys:
  *     a = session, P = project, G = global, d = deny for session, esc = deny once.
  *
@@ -45,6 +45,7 @@ import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { BashOperations, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createBashTool, DynamicBorder, getAgentDir, getShellConfig, isToolCallEventType, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -290,11 +291,26 @@ function parseViolation(line: string): Blocked | null {
 const VIOLATION_WAIT_MS = 500;
 /** Once one file violation has arrived, give its siblings a moment to follow. */
 const VIOLATION_SETTLE_MS = 100;
-/** Cap on grant prompts after one bash run, so a noisy command can't prompt-storm. */
-const MAX_PROMPTS_PER_RUN = 3;
+
+/**
+ * Whether the library's macOS violation monitor can work at all: it runs
+ * `log stream`, which needs admin rights, and fails silently otherwise. Probe
+ * once by starting our own `log stream`; if it exits within the grace period
+ * it isn't usable, so don't wait for violations that will never arrive.
+ * Linux uses a seccomp monitor with no such requirement.
+ */
+let monitorLive: boolean | null = process.platform === "linux" ? true : null;
+function probeMacMonitor(): void {
+	if (process.platform !== "darwin" || monitorLive !== null) return;
+	const probe = spawn("log", ["stream", "--predicate", 'eventMessage == "pi-sandbox-probe"', "--style", "compact"], { stdio: "ignore" });
+	const t = setTimeout(() => { monitorLive = true; probe.kill("SIGTERM"); }, 1500);
+	const dead = () => { clearTimeout(t); if (monitorLive === null) monitorLive = false; };
+	probe.on("exit", dead);
+	probe.on("error", dead);
+}
 
 // Note: the store is a global ring (100 entries); a noisy parallel command can
-// evict this run's lines, in which case nothing is offered.
+// evict this run's lines.
 async function violationsFor(commandId: string, wait: boolean): Promise<string[]> {
 	const store = SandboxManager.getSandboxViolationStore();
 	const get = () => store.getViolationsForCommand(commandId).map((v) => v.line);
@@ -489,6 +505,7 @@ export default function (pi: ExtensionAPI) {
 
 	async function initSandbox(): Promise<void> {
 		await SandboxManager.initialize(runtimeConfig(), askNetwork, true); // true = violation monitor
+		probeMacMonitor();
 		sandboxOn = true;
 	}
 	// Hot-swap the policy without restarting the proxies (reset + initialize
@@ -505,58 +522,78 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		...localBash,
 		label: "bash",
-		async execute(id, params, signal, onUpdate, ctx) {
+		async execute(id, params, signal, onUpdate) {
 			if (mode !== "sandbox" || !sandboxOn) {
 				return localBash.execute(id, params, signal, onUpdate); // prompt mode / disabled: run bare
 			}
-			const run = async () => {
-				// Unique per run so a retry doesn't inherit the first run's violations.
-				// (Not derived from the tool call id: keys compare on their first 100 chars.)
-				const commandId = randomUUID();
-				const tool = createBashTool(cwd, { operations: sandboxedBashOps(shell, commandId), commandPrefix: shellCommandPrefix });
-				const result = await tool.execute(id, params, signal, onUpdate);
-				// Only failed runs count: plenty of programs attempt a denied write,
-				// shrug, and carry on successfully. Output is never inspected.
-				const failed = !!result.isError;
-				const violations = await violationsFor(commandId, failed);
-				return { result, failed, violations };
-			};
-			// Tell the model what the sandbox blocked — bare EPERMs are otherwise opaque.
-			const annotate = ({ result, violations }: Run) => {
-				if (!result.isError) return result;
-				const lines = violations.filter((l) => {
-					const b = parseViolation(l);
-					return !b || !isStale(b);
-				});
-				if (lines.length === 0) return result;
-				const shown = lines.slice(0, 20).join("\n");
-				const more = lines.length > 20 ? `\n... ${lines.length - 20} more` : "";
-				return { ...result, content: [...result.content, { type: "text" as const, text: `\n<sandbox_violations>\n${shown}${more}\n</sandbox_violations>` }] };
-			};
-			type Run = Awaited<ReturnType<typeof run>>;
+			// Unique per run so violations are attributed to this invocation only.
+			// (Not derived from the tool call id: keys compare on their first 100 chars.)
+			const commandId = randomUUID();
+			const tool = createBashTool(cwd, { operations: sandboxedBashOps(shell, commandId), commandPrefix: shellCommandPrefix });
+			const result = await tool.execute(id, params, signal, onUpdate);
+			if (!result.isError) return result;
+			// Failed run: tell the model what the sandbox blocked, when the library
+			// knows (bare EPERMs are otherwise opaque). Output is never inspected;
+			// granting access is the model's call via sandbox_request_access.
+			const violations = await violationsFor(commandId, monitorLive === true);
+			const lines = violations.filter((l) => {
+				const b = parseViolation(l);
+				return !b || !isStale(b);
+			});
+			if (lines.length === 0) return result;
+			const shown = lines.slice(0, 20).join("\n");
+			const more = lines.length > 20 ? `\n... ${lines.length - 20} more` : "";
+			return { ...result, content: [...result.content, { type: "text" as const, text: `\n<sandbox_violations>\n${shown}${more}\n</sandbox_violations>` }] };
+		},
+	});
 
-			const first = await run();
-			if (!ctx?.hasUI || !first.failed) return annotate(first);
-
-			// Offer to allow blocked paths, then retry once.
-			let granted = false;
-			for (const b of blockedCandidates(first)) {
-				// Serialise with network prompts (and parallel tool calls); re-check once
-				// it's our turn, as a queued prompt may have settled it already.
-				const grant = await enqueue(async (): Promise<Grant | "already" | "skip"> => {
-					if (isStale(b)) return "already";
-					if (!offerable(b)) return "skip";
-					const title = b.kind === "write" ? `📝 bash write blocked: allow write to "${b.path}"?` : `📖 bash read blocked: allow read of "${b.path}"?`;
-					const g = await promptGrant(ctx, title);
-					if (g === "deny") (b.kind === "write" ? sessionDeniedWrite : sessionDeniedRead).add(b.path);
-					if (isAllow(g)) await applyGrant(b.kind, b.path, g);
-					return g;
-				});
-				if (grant === "already" || (grant !== "skip" && isAllow(grant))) granted = true;
+	// ── sandbox_request_access tool ─────────────────────────────────────────────
+	// The model asks for a path explicitly after hitting a sandbox block, rather
+	// than the extension guessing from bash output.
+	pi.registerTool({
+		name: "sandbox_request_access",
+		label: "sandbox access",
+		exposure: "model-only",
+		description:
+			"Ask the user to grant the OS sandbox read or write access to a path. Use this when a bash command fails because the sandbox blocked " +
+			"a path you genuinely need (errors like 'Operation not permitted', 'Read-only file system', EPERM/EACCES on that path, or a " +
+			"<sandbox_violations> block). Request the narrowest path that works (the file, or the directory if the tool creates several files). " +
+			"If granted, re-run the command yourself. If denied, do not ask again for the same path; find another approach or tell the user. " +
+			"Not for network access (network prompts happen automatically) or for pi's own read/write/edit tools (they prompt on their own).",
+		parameters: Type.Object({
+			path: Type.String({ description: "Absolute path (or ~/...) to grant access to." }),
+			access: Type.Union([Type.Literal("read"), Type.Literal("write")], { description: "read, or write (write also implies the path is writable by bash)." }),
+			reason: Type.String({ description: "One short sentence shown to the user: what you need it for." }),
+		}),
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			const reply = (text: string, granted: boolean) => ({ content: [{ type: "text" as const, text }], details: { granted } });
+			if (mode !== "sandbox" || !sandboxOn) return reply("The OS sandbox is not active; no grant is needed. The failure has another cause.", false);
+			const kind = params.access;
+			const path = canonicalizePath(params.path);
+			const cfg = loadConfig(cwd);
+			if (kind === "write" && matchesPattern(path, cfg.filesystem?.denyWrite ?? [])) {
+				return reply(`Refused: "${path}" is in the sandbox denyWrite list. Do not retry; tell the user if you need it.`, false);
 			}
-			if (!granted) return annotate(first);
-			onUpdate?.({ content: [{ type: "text", text: `\n--- access granted, retrying ---\n` }], details: undefined });
-			return annotate(await run());
+			if (kind === "read" && matchesPattern(path, targetedReadDenies())) {
+				return reply(`Refused: "${path}" is in the sandbox denyRead list. Do not retry; tell the user if you need it.`, false);
+			}
+			if (isStale({ kind, path }) || matchesPattern(path, kind === "read" ? effAllowRead() : effAllowWrite())) {
+				return reply(`"${path}" is already allowed for ${kind}. If the command still fails, the block is something else (e.g. a denied parent/child path, process-exec, or network).`, true);
+			}
+			const denied = kind === "read" ? sessionDeniedRead : sessionDeniedWrite;
+			if (denied.has(path)) return reply(`Denied: the user already denied ${kind} access to "${path}" this session. Do not ask again.`, false);
+			if (!ctx?.hasUI) return reply(`Denied: no UI available to ask the user for ${kind} access to "${path}".`, false);
+			const grant = await enqueue(async (): Promise<Grant | "already"> => {
+				if (matchesPattern(path, kind === "read" ? effAllowRead() : effAllowWrite())) return "already"; // granted while queued
+				const icon = kind === "read" ? "📖" : "📝";
+				const g = await promptGrant(ctx, `${icon} Agent requests ${kind} access to "${path}"\n   Reason: ${params.reason}`);
+				if (g === "deny") denied.add(path);
+				if (isAllow(g)) await applyGrant(kind, path, g);
+				return g;
+			});
+			if (grant === "already" || isAllow(grant)) return reply(`Granted ${kind} access to "${path}". Re-run the command.`, true);
+			if (grant === "deny") return reply(`Denied: the user denied ${kind} access to "${path}" for this session. Do not ask again.`, false);
+			return reply(`Denied: the user declined ${kind} access to "${path}" this time.`, false);
 		},
 	});
 
@@ -589,33 +626,6 @@ export default function (pi: ExtensionAPI) {
 		return (loadConfig(cwd).filesystem?.denyRead ?? []).filter((p) => !broad.has(canonicalizePath(p)));
 	}
 
-	/** Whether to prompt for a blocked path at all (policy / session-deny checks). */
-	function offerable(b: Blocked): boolean {
-		if (matchesPattern(b.path, targetedReadDenies())) return false;
-		if (b.kind === "read") return !sessionDeniedRead.has(b.path);
-		return !sessionDeniedWrite.has(b.path) && !matchesPattern(b.path, loadConfig(cwd).filesystem?.denyWrite ?? []);
-	}
-
-	/**
-	 * Write paths worth prompting for after a failed run, straight from the
-	 * library's per-command violation log, in log order. Reads are never
-	 * offered from bash: directory scans (find, rg) probe many denied paths
-	 * harmlessly, and without inspecting output there's no telling which one
-	 * mattered. They still appear in <sandbox_violations> for the model.
-	 */
-	function blockedCandidates({ violations }: { violations: string[] }): Blocked[] {
-		const seen = new Set<string>();
-		const out: Blocked[] = [];
-		for (const v of violations) {
-			const p = parseViolation(v);
-			if (!p || p.kind !== "write") continue;
-			const b = { kind: p.kind, path: canonicalizePath(p.path) };
-			if (seen.has(b.path) || isStale(b) || !offerable(b)) continue;
-			seen.add(b.path);
-			out.push(b);
-		}
-		return out.slice(0, MAX_PROMPTS_PER_RUN);
-	}
 
 	// ── tool_call: fs gates (sandbox) / confirm-everything (prompt) ─────────────
 	pi.on("tool_call", async (event, ctx) => {
