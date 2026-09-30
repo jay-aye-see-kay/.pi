@@ -357,9 +357,9 @@ export default function (pi: ExtensionAPI) {
 		else if (!sessionWrite.includes(value)) sessionWrite.push(value);
 		if (grant === "project") addToConfigList(projectPath, section, key, value);
 		if (grant === "global") addToConfigList(globalPath, section, key, value);
-		// Reinitialise so a running OS sandbox picks up new fs paths for bash.
-		// Network grants are served by the ask callback, so no reinit needed.
-		if (kind !== "domain" && sandboxOn) await reinitSandbox();
+		// Push new fs paths into the running OS sandbox so the next bash command
+		// sees them. Network grants are served by the ask callback, so no update needed.
+		if (kind !== "domain" && sandboxOn) updateSandboxConfig();
 	}
 
 	// ── Sandbox init ──────────────────────────────────────────────────────────
@@ -413,12 +413,13 @@ export default function (pi: ExtensionAPI) {
 		await SandboxManager.initialize(runtimeConfig(), askNetwork);
 		sandboxOn = true;
 	}
-	async function reinitSandbox(): Promise<void> {
+	// Hot-swap the policy without restarting the proxies (reset + initialize
+	// would tear down and rebuild them). Applies to subsequently wrapped commands.
+	function updateSandboxConfig(): void {
 		try {
-			await SandboxManager.reset();
-			await SandboxManager.initialize(runtimeConfig(), askNetwork);
+			SandboxManager.updateConfig(runtimeConfig());
 		} catch (e) {
-			console.error(`sandbox: reinit failed: ${e}`);
+			ctxRef?.ui.notify(`Sandbox config update failed (previous policy still in effect): ${e}`, "error");
 		}
 	}
 
