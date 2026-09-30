@@ -188,6 +188,18 @@ function addToConfigList(path: string, section: "network" | "filesystem", key: s
 // ── Sandboxed bash ops ────────────────────────────────────────────────────────
 
 /**
+ * Bumped on every SandboxManager.reset(). reset() force-cleans mount points and
+ * zeroes the library's live-sandbox ref count, so a command wrapped before it
+ * must not call cleanupAfterCommand() afterwards — that would decrement the
+ * count of a newer command and pull mount points from under its live bwrap.
+ */
+let sandboxGeneration = 0;
+async function resetSandbox(): Promise<void> {
+	sandboxGeneration++;
+	await SandboxManager.reset();
+}
+
+/**
  * `commandId` keys the library's violation store: violations observed while the
  * wrapped command runs are retrievable via getViolationsForCommand(commandId).
  * Must be unique per invocation, or a rerun inherits earlier violations.
@@ -196,37 +208,52 @@ function sandboxedBashOps(shellPath: string | undefined, commandId: string): Bas
 	return {
 		async exec(command, cwd, { onData, signal, timeout, env }) {
 			if (!existsSync(cwd)) throw new Error(`Working directory does not exist: ${cwd}`);
-			const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, undefined, undefined, { commandId });
 			const { shell, args } = getShellConfig(shellPath);
+			const generation = sandboxGeneration;
+			const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, undefined, undefined, { commandId });
 			// The sandbox isolates network via an HTTP(S) proxy (HTTPS_PROXY). Node's
 			// fetch/undici ignores that proxy unless NODE_USE_ENV_PROXY=1, so Node-based
 			// CLIs (e.g. mcporter MCP calls) get EPERM. Opt them into the proxy here.
 			const childEnv = { ...(env ?? process.env) };
 			if (childEnv.NODE_USE_ENV_PROXY === undefined) childEnv.NODE_USE_ENV_PROXY = "1";
-			return new Promise((resolvePromise, reject) => {
-				const child = spawn(shell, [...args, wrapped], { cwd, env: childEnv, detached: true, stdio: ["ignore", "pipe", "pipe"] });
-				let timedOut = false;
-				let th: NodeJS.Timeout | undefined;
-				if (timeout && timeout > 0) {
-					th = setTimeout(() => {
-						timedOut = true;
-						if (child.pid) try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
-					}, timeout * 1000);
-				}
-				child.stdout?.on("data", onData);
-				child.stderr?.on("data", onData);
-				child.on("error", (e) => { if (th) clearTimeout(th); reject(e); });
-				const onAbort = () => { if (child.pid) try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); } };
-				signal?.addEventListener("abort", onAbort, { once: true });
-				child.on("close", (code, sig) => {
-					if (th) clearTimeout(th);
-					signal?.removeEventListener("abort", onAbort);
-					if (signal?.aborted) reject(new Error("aborted"));
-					else if (timedOut) reject(new Error(`timeout:${timeout}`));
-					// Killed by a signal: report 128+N like a shell (null would make pi throw).
-					else resolvePromise({ exitCode: code ?? (sig ? 128 + (osConstants.signals[sig] ?? 0) : 1) });
+			try {
+				return await new Promise((resolvePromise, reject) => {
+					const child = spawn(shell, [...args, wrapped], { cwd, env: childEnv, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+					let timedOut = false;
+					let th: NodeJS.Timeout | undefined;
+					if (timeout && timeout > 0) {
+						th = setTimeout(() => {
+							timedOut = true;
+							if (child.pid) try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+						}, timeout * 1000);
+					}
+					child.stdout?.on("data", onData);
+					child.stderr?.on("data", onData);
+					// Spawn failure: no process, settle now. Any later error (e.g. a failed
+					// kill): wait for 'close', so cleanup never runs under a live sandbox.
+					let childError: Error | undefined;
+					child.on("error", (e) => {
+						if (child.pid === undefined) { if (th) clearTimeout(th); reject(e); }
+						else childError = e;
+					});
+					const onAbort = () => { if (child.pid) try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); } };
+					signal?.addEventListener("abort", onAbort, { once: true });
+					child.on("close", (code, sig) => {
+						if (th) clearTimeout(th);
+						signal?.removeEventListener("abort", onAbort);
+						if (childError) reject(childError);
+						else if (signal?.aborted) reject(new Error("aborted"));
+						else if (timedOut) reject(new Error(`timeout:${timeout}`));
+						// Killed by a signal: report 128+N like a shell (null would make pi throw).
+						else resolvePromise({ exitCode: code ?? (sig ? 128 + (osConstants.signals[sig] ?? 0) : 1) });
+					});
 				});
-			});
+			} finally {
+				// Exactly once per successful wrapWithSandbox (it's ref-counted): on Linux,
+				// removes the empty mount-point files bwrap leaves on the host for
+				// non-existent deny paths once no sandboxed command is running. No-op on macOS.
+				if (generation === sandboxGeneration) SandboxManager.cleanupAfterCommand();
+			}
 		},
 	};
 }
@@ -707,7 +734,7 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
-		if (sandboxOn) try { await SandboxManager.reset(); } catch {}
+		if (sandboxOn) try { await resetSandbox(); } catch {}
 	});
 
 	// ── mode switching ────────────────────────────────────────────────────────
@@ -747,7 +774,7 @@ export default function (pi: ExtensionAPI) {
 	async function enterPromptMode(ctx: ExtensionContext): Promise<void> {
 		mode = "prompt";
 		if (sandboxOn) {
-			try { await SandboxManager.reset(); } catch {}
+			try { await resetSandbox(); } catch {}
 			sandboxOn = false;
 		}
 		setModeStatus(ctx);
