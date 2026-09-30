@@ -14,8 +14,9 @@
  *     allowRead/allowWrite/denyWrite. Grants can be kept for the session, the
  *     project, or all projects. When a bash command is blocked by the OS sandbox,
  *     the library's violation log (seatbelt log on macOS, seccomp monitor on
- *     Linux) says what was denied: the user is offered a grant + retry, and the
- *     violations are appended to the tool result for the model. Denying a host/path is remembered for the session
+ *     Linux) says what was denied: the user is offered a grant + retry, and
+ *     for failed commands the violations are appended to the tool result for
+ *     the model. Denying a host/path is remembered for the session
  *     (chatty endpoints otherwise re-prompt on every connection). Prompt keys:
  *     a = session, P = project, G = global, d = deny for session, esc = deny once.
  *
@@ -247,8 +248,12 @@ interface Blocked {
 function parseViolation(line: string): Blocked | null {
 	const mac = line.match(/\bdeny(?:\(\d+\))? (file-read-data|file-write[\w-]*) (\/.+)$/);
 	if (mac) return { kind: mac[1] === "file-read-data" ? "read" : "write", path: mac[2] };
+	if (process.platform !== "linux") return null;
 	const linux = line.match(/^deny \S+ (\/.+)$/);
-	return linux ? { kind: "write", path: linux[1] } : null;
+	// The Linux monitor also reports writes bwrap actually permits via its
+	// --dev / --proc mounts; those are never real blocks.
+	if (!linux || /^\/(dev|proc|sys)(\/|$)/.test(linux[1])) return null;
+	return { kind: "write", path: linux[1] };
 }
 
 /** Output that suggests an OS-level block, worth waiting for the (async) violation log. */
@@ -260,6 +265,8 @@ const VIOLATION_SETTLE_MS = 100;
 /** Cap on grant prompts after one bash run, so a noisy command can't prompt-storm. */
 const MAX_PROMPTS_PER_RUN = 3;
 
+// Note: the store is a global ring (100 entries); a noisy parallel command can
+// evict this run's lines, which degrades to the output-scraping fallback.
 async function violationsFor(commandId: string, wait: boolean): Promise<string[]> {
 	const store = SandboxManager.getSandboxViolationStore();
 	const get = () => store.getViolationsForCommand(commandId).map((v) => v.line);
@@ -501,7 +508,9 @@ export default function (pi: ExtensionAPI) {
 				const commandId = randomUUID();
 				const tool = createBashTool(cwd, { operations: sandboxedBashOps(shell, commandId), commandPrefix: shellCommandPrefix });
 				const result = await tool.execute(id, params, signal, onUpdate);
-				const text = result.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("\n");
+				// Prefer the full (untruncated) output so an early EPERM isn't missed.
+				const full = (result.structuredContent as { output?: unknown } | undefined)?.output;
+				const text = typeof full === "string" ? full : result.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("\n");
 				// Only treat the run as sandbox-blocked if the output says so: plenty of
 				// programs attempt a denied write, shrug, and carry on successfully.
 				const blocked = PERMISSION_ERROR.test(text);
@@ -511,11 +520,9 @@ export default function (pi: ExtensionAPI) {
 			// Tell the model what the sandbox blocked — bare EPERMs are otherwise opaque.
 			const annotate = ({ result, violations }: Run) => {
 				if (!result.isError) return result;
-				// Drop reports for paths that are allowed now (the Linux monitor's lists
-				// are fixed at initialize and go stale after a grant).
 				const lines = violations.filter((l) => {
 					const b = parseViolation(l);
-					return !b || !isAllowedNow(b);
+					return !b || !isStale(b);
 				});
 				if (lines.length === 0) return result;
 				const shown = lines.slice(0, 20).join("\n");
@@ -533,7 +540,7 @@ export default function (pi: ExtensionAPI) {
 				// Serialise with network prompts (and parallel tool calls); re-check once
 				// it's our turn, as a queued prompt may have settled it already.
 				const grant = await enqueue(async (): Promise<Grant | "already" | "skip"> => {
-					if (isAllowedNow(b)) return "already";
+					if (isStale(b)) return "already";
 					if (!offerable(b)) return "skip";
 					const title = b.kind === "write" ? `📝 bash write blocked: allow write to "${b.path}"?` : `📖 bash read blocked: allow read of "${b.path}"?`;
 					const g = await promptGrant(ctx, title);
@@ -549,17 +556,29 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	function isAllowedNow(b: Blocked): boolean {
-		if (b.kind === "read") return matchesPattern(b.path, effAllowRead());
-		return matchesPattern(b.path, effAllowWrite()) && !matchesPattern(b.path, loadConfig(cwd).filesystem?.denyWrite ?? []);
+	/**
+	 * A report for a path that is no longer blocked. On Linux the violation
+	 * monitor's allow/deny lists are fixed at initialize and go stale after a
+	 * grant (updateConfig), so re-check against the current policy. On macOS
+	 * every report is a real seatbelt deny; our own glob matcher doesn't mirror
+	 * the library's exactly, so only trust exact grants made this session.
+	 */
+	function isStale(b: Blocked): boolean {
+		if (process.platform === "linux") {
+			// bwrap can't enforce globs: the library drops glob allow/deny entries on Linux.
+			const literal = (ps: string[]) => ps.filter((p) => !p.includes("*"));
+			if (b.kind === "read") return matchesPattern(b.path, literal(effAllowRead()));
+			return matchesPattern(b.path, literal(effAllowWrite())) && !matchesPattern(b.path, literal(loadConfig(cwd).filesystem?.denyWrite ?? []));
+		}
+		return (b.kind === "read" ? sessionRead : sessionWrite).includes(b.path);
 	}
 
 	/**
 	 * denyRead entries narrower than the home dir / root (e.g. ~/.ssh). Broad
 	 * entries like "~" are a default-deny that allowRead carves into, so
 	 * offering a grant there is normal; a targeted entry is a deliberate choice
-	 * that a quick keypress shouldn't override (allowRead beats denyRead in the
-	 * library). Writes beneath them are blocked by the library regardless.
+	 * that a quick keypress shouldn't override (an allowRead nested inside a
+	 * denyRead re-opens it in the library, which is exactly what a grant adds).
 	 */
 	function targetedReadDenies(): string[] {
 		const broad = new Set([canonicalizePath(homedir()), "/"]);
@@ -574,9 +593,12 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Paths worth prompting for after a blocked run, from the violation store,
-	 * falling back to scraping the output for writes. Reads are only offered when
-	 * the command failed — programs probe lots of denied paths harmlessly.
+	 * Paths worth prompting for after a blocked run. The path named in the error
+	 * output comes first (it's what actually failed; the macOS monitor can drop
+	 * or misattribute lines), then violation-store reports, those mentioned in
+	 * the output first. Reads are only offered when the command failed AND the
+	 * output names the path — directory scans (find, rg) probe many denied
+	 * paths harmlessly.
 	 */
 	function blockedCandidates({ result, text, violations }: { result: { isError?: boolean }; text: string; violations: string[] }): Blocked[] {
 		const collect = (found: Blocked[]) => {
@@ -585,18 +607,18 @@ export default function (pi: ExtensionAPI) {
 			for (const f of found) {
 				const b = { kind: f.kind, path: canonicalizePath(f.path) };
 				const key = `${b.kind}:${b.path}`;
-				if (seen.has(key) || isAllowedNow(b) || !offerable(b)) continue;
+				if (seen.has(key) || isStale(b) || !offerable(b)) continue;
 				seen.add(key);
 				out.push(b);
 			}
 			return out;
 		};
-		let out = collect(violations.map(parseViolation).filter((b): b is Blocked => b !== null && (b.kind === "write" || !!result.isError)));
-		if (out.length === 0) {
-			const scraped = blockedWritePath(text);
-			if (scraped) out = collect([{ kind: "write", path: scraped }]);
-		}
-		return out.slice(0, MAX_PROMPTS_PER_RUN);
+		const scraped = blockedWritePath(text);
+		const reported = violations
+			.map(parseViolation)
+			.filter((b): b is Blocked => b !== null && (b.kind === "write" || (!!result.isError && text.includes(b.path))))
+			.sort((a, b) => Number(text.includes(b.path)) - Number(text.includes(a.path)));
+		return collect([...(scraped ? [{ kind: "write" as const, path: scraped }] : []), ...reported]).slice(0, MAX_PROMPTS_PER_RUN);
 	}
 
 	// ── tool_call: fs gates (sandbox) / confirm-everything (prompt) ─────────────
@@ -612,12 +634,7 @@ export default function (pi: ExtensionAPI) {
 		if (isToolCallEventType("read", event)) {
 			const path = canonicalizePath(event.input.path);
 			if (matchesPattern(path, effAllowRead())) return;
-			if (sessionDeniedRead.has(path)) return { block: true, reason: `Sandbox: read denied for "${path}" (denied for this session)` };
-			const grant = await promptGrant(ctx, `📖 Allow read of "${path}"?`);
-			if (grant === "deny") sessionDeniedRead.add(path);
-			if (!isAllow(grant)) return { block: true, reason: `Sandbox: read denied for "${path}"` };
-			await applyGrant("read", path, grant);
-			return;
+			return gateTool(ctx, "read", path);
 		}
 
 		if (isToolCallEventType("write", event) || isToolCallEventType("edit", event)) {
@@ -627,14 +644,24 @@ export default function (pi: ExtensionAPI) {
 				return { block: true, reason: `Sandbox: write denied for "${path}" (in denyWrite)` };
 			}
 			if (matchesPattern(path, effAllowWrite())) return;
-			if (sessionDeniedWrite.has(path)) return { block: true, reason: `Sandbox: write denied for "${path}" (denied for this session)` };
-			const grant = await promptGrant(ctx, `📝 Allow write to "${path}"?`);
-			if (grant === "deny") sessionDeniedWrite.add(path);
-			if (!isAllow(grant)) return { block: true, reason: `Sandbox: write denied for "${path}"` };
-			await applyGrant("write", path, grant);
-			return;
+			return gateTool(ctx, "write", path);
 		}
 	});
+
+	/** Prompt for an in-process read/write, serialised with all other grant prompts. */
+	async function gateTool(ctx: ExtensionContext, kind: "read" | "write", path: string): Promise<{ block: true; reason: string } | undefined> {
+		const allow = kind === "read" ? effAllowRead : effAllowWrite;
+		const denied = kind === "read" ? sessionDeniedRead : sessionDeniedWrite;
+		return enqueue(async () => {
+			if (matchesPattern(path, allow())) return undefined; // granted while queued
+			if (denied.has(path)) return { block: true as const, reason: `Sandbox: ${kind} denied for "${path}" (denied for this session)` };
+			const grant = await promptGrant(ctx, kind === "read" ? `📖 Allow read of "${path}"?` : `📝 Allow write to "${path}"?`);
+			if (grant === "deny") denied.add(path);
+			if (!isAllow(grant)) return { block: true as const, reason: `Sandbox: ${kind} denied for "${path}"` };
+			await applyGrant(kind, path, grant);
+			return undefined;
+		});
+	}
 
 	async function confirmOnce(ctx: ExtensionContext, verb: string, target: string): Promise<{ block: true; reason: string } | undefined> {
 		if (!ctx.hasUI) return { block: true, reason: `Sandbox (prompt mode): no UI to approve ${verb}` };
@@ -650,7 +677,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			return;
 		}
-		if (sandboxOn) return { operations: sandboxedBashOps(shell, `user_bash#${randomUUID()}`) };
+		if (sandboxOn) return { operations: sandboxedBashOps(shell, randomUUID()) };
 	});
 
 	// ── lifecycle ───────────────────────────────────────────────────────────────
