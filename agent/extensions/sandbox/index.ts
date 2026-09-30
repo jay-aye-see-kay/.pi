@@ -14,9 +14,12 @@
  *     allowRead/allowWrite/denyWrite. Grants can be kept for the session, the
  *     project, or all projects. When a bash command is blocked by the OS sandbox,
  *     the library's violation log (seatbelt log on macOS, seccomp monitor on
- *     Linux) says what was denied: the user is offered a grant + retry, and
- *     for failed commands the violations are appended to the tool result for
- *     the model. Denying a host/path is remembered for the session
+ *     Linux) says what was denied. For failed commands the violations are
+ *     appended to the tool result for the model, and blocked writes are
+ *     offered as a grant + retry. Bash output is never parsed: only the exit
+ *     code and the library's per-command violation log are consulted. Reads
+ *     are never offered from bash (directory scans probe denied paths
+ *     harmlessly); grant them via the read tool or config. Denying a host/path is remembered for the session
  *     (chatty endpoints otherwise re-prompt on every connection). Prompt keys:
  *     a = session, P = project, G = global, d = deny for session, esc = deny once.
  *
@@ -283,8 +286,6 @@ function parseViolation(line: string): Blocked | null {
 	return { kind: "write", path: linux[1] };
 }
 
-/** Output that suggests an OS-level block, worth waiting for the (async) violation log. */
-const PERMISSION_ERROR = /Operation not permitted|Permission denied|Read-only file system|\bEPERM\b|\bEACCES\b/;
 /** macOS violations arrive via `log stream`, a little after the command exits. */
 const VIOLATION_WAIT_MS = 500;
 /** Once one file violation has arrived, give its siblings a moment to follow. */
@@ -293,7 +294,7 @@ const VIOLATION_SETTLE_MS = 100;
 const MAX_PROMPTS_PER_RUN = 3;
 
 // Note: the store is a global ring (100 entries); a noisy parallel command can
-// evict this run's lines, which degrades to the output-scraping fallback.
+// evict this run's lines, in which case nothing is offered.
 async function violationsFor(commandId: string, wait: boolean): Promise<string[]> {
 	const store = SandboxManager.getSandboxViolationStore();
 	const get = () => store.getViolationsForCommand(commandId).map((v) => v.line);
@@ -312,27 +313,6 @@ async function violationsFor(commandId: string, wait: boolean): Promise<string[]
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/**
- * Fallback when the violation store has nothing usable (the macOS monitor can
- * drop or misattribute lines; the Linux monitor may not be listening yet):
- * pull a blocked write path out of the output. Linux bwrap fails writes with
- * EROFS ("Read-only file system"), macOS seatbelt with EPERM.
- */
-function blockedWritePath(output: string): string | null {
-	// bash's own redirection failures:
-	//   bash: /path: Operation not permitted
-	const shell = output.match(/(?:\/bin\/bash|bash|sh): (?:line \d+: )?(\/[\s\S]+?): (?:Operation not permitted|Read-only file system)/);
-	if (shell) return shell[1];
-	// tool-reported failures (touch, tee, ...):
-	//   touch: /path: Operation not permitted
-	const tool = output.match(/^\w[\w./-]*: (\/.+?): (?:Operation not permitted|Read-only file system)/m);
-	if (tool) return tool[1];
-	// git's lock-file failures:
-	//   fatal: Unable to create '/path/.git/index.lock': Operation not permitted
-	const git = output.match(/Unable to create '([^']+)': (?:Operation not permitted|Read-only file system)/);
-	return git ? git[1] : null;
-}
 
 // ── Extension ─────────────────────────────────────────────────────────────────
 
@@ -535,14 +515,11 @@ export default function (pi: ExtensionAPI) {
 				const commandId = randomUUID();
 				const tool = createBashTool(cwd, { operations: sandboxedBashOps(shell, commandId), commandPrefix: shellCommandPrefix });
 				const result = await tool.execute(id, params, signal, onUpdate);
-				// Prefer the full (untruncated) output so an early EPERM isn't missed.
-				const full = (result.structuredContent as { output?: unknown } | undefined)?.output;
-				const text = typeof full === "string" ? full : result.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("\n");
-				// Only treat the run as sandbox-blocked if the output says so: plenty of
-				// programs attempt a denied write, shrug, and carry on successfully.
-				const blocked = PERMISSION_ERROR.test(text);
-				const violations = await violationsFor(commandId, blocked);
-				return { result, text, blocked, violations };
+				// Only failed runs count: plenty of programs attempt a denied write,
+				// shrug, and carry on successfully. Output is never inspected.
+				const failed = !!result.isError;
+				const violations = await violationsFor(commandId, failed);
+				return { result, failed, violations };
 			};
 			// Tell the model what the sandbox blocked — bare EPERMs are otherwise opaque.
 			const annotate = ({ result, violations }: Run) => {
@@ -559,7 +536,7 @@ export default function (pi: ExtensionAPI) {
 			type Run = Awaited<ReturnType<typeof run>>;
 
 			const first = await run();
-			if (!ctx?.hasUI || !first.blocked) return annotate(first);
+			if (!ctx?.hasUI || !first.failed) return annotate(first);
 
 			// Offer to allow blocked paths, then retry once.
 			let granted = false;
@@ -620,32 +597,24 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	/**
-	 * Paths worth prompting for after a blocked run. The path named in the error
-	 * output comes first (it's what actually failed; the macOS monitor can drop
-	 * or misattribute lines), then violation-store reports, those mentioned in
-	 * the output first. Reads are only offered when the command failed AND the
-	 * output names the path — directory scans (find, rg) probe many denied
-	 * paths harmlessly.
+	 * Write paths worth prompting for after a failed run, straight from the
+	 * library's per-command violation log, in log order. Reads are never
+	 * offered from bash: directory scans (find, rg) probe many denied paths
+	 * harmlessly, and without inspecting output there's no telling which one
+	 * mattered. They still appear in <sandbox_violations> for the model.
 	 */
-	function blockedCandidates({ result, text, violations }: { result: { isError?: boolean }; text: string; violations: string[] }): Blocked[] {
-		const collect = (found: Blocked[]) => {
-			const seen = new Set<string>();
-			const out: Blocked[] = [];
-			for (const f of found) {
-				const b = { kind: f.kind, path: canonicalizePath(f.path) };
-				const key = `${b.kind}:${b.path}`;
-				if (seen.has(key) || isStale(b) || !offerable(b)) continue;
-				seen.add(key);
-				out.push(b);
-			}
-			return out;
-		};
-		const scraped = blockedWritePath(text);
-		const reported = violations
-			.map(parseViolation)
-			.filter((b): b is Blocked => b !== null && (b.kind === "write" || (!!result.isError && text.includes(b.path))))
-			.sort((a, b) => Number(text.includes(b.path)) - Number(text.includes(a.path)));
-		return collect([...(scraped ? [{ kind: "write" as const, path: scraped }] : []), ...reported]).slice(0, MAX_PROMPTS_PER_RUN);
+	function blockedCandidates({ violations }: { violations: string[] }): Blocked[] {
+		const seen = new Set<string>();
+		const out: Blocked[] = [];
+		for (const v of violations) {
+			const p = parseViolation(v);
+			if (!p || p.kind !== "write") continue;
+			const b = { kind: p.kind, path: canonicalizePath(p.path) };
+			if (seen.has(b.path) || isStale(b) || !offerable(b)) continue;
+			seen.add(b.path);
+			out.push(b);
+		}
+		return out.slice(0, MAX_PROMPTS_PER_RUN);
 	}
 
 	// ── tool_call: fs gates (sandbox) / confirm-everything (prompt) ─────────────
