@@ -12,7 +12,10 @@
  *     is prompted at CONNECTION time via the sandbox's request-time ask callback
  *     (accurate — no command regex). read/write/edit are gated against
  *     allowRead/allowWrite/denyWrite. Grants can be kept for the session, the
- *     project, or all projects. Denying a host/path is remembered for the session
+ *     project, or all projects. When a bash command is blocked by the OS sandbox,
+ *     the library's violation log (seatbelt log on macOS, seccomp monitor on
+ *     Linux) says what was denied: the user is offered a grant + retry, and the
+ *     violations are appended to the tool result for the model. Denying a host/path is remembered for the session
  *     (chatty endpoints otherwise re-prompt on every connection). Prompt keys:
  *     a = session, P = project, G = global, d = deny for session, esc = deny once.
  *
@@ -30,8 +33,9 @@
  * inconsistent and broken when running from a repo subdirectory).
  */
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { constants as osConstants, homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { BashOperations, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -182,11 +186,16 @@ function addToConfigList(path: string, section: "network" | "filesystem", key: s
 
 // ── Sandboxed bash ops ────────────────────────────────────────────────────────
 
-function sandboxedBashOps(shellPath?: string): BashOperations {
+/**
+ * `commandId` keys the library's violation store: violations observed while the
+ * wrapped command runs are retrievable via getViolationsForCommand(commandId).
+ * Must be unique per invocation, or a rerun inherits earlier violations.
+ */
+function sandboxedBashOps(shellPath: string | undefined, commandId: string): BashOperations {
 	return {
 		async exec(command, cwd, { onData, signal, timeout, env }) {
 			if (!existsSync(cwd)) throw new Error(`Working directory does not exist: ${cwd}`);
-			const wrapped = await SandboxManager.wrapWithSandbox(command);
+			const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, undefined, undefined, { commandId });
 			const { shell, args } = getShellConfig(shellPath);
 			// The sandbox isolates network via an HTTP(S) proxy (HTTPS_PROXY). Node's
 			// fetch/undici ignores that proxy unless NODE_USE_ENV_PROXY=1, so Node-based
@@ -208,31 +217,86 @@ function sandboxedBashOps(shellPath?: string): BashOperations {
 				child.on("error", (e) => { if (th) clearTimeout(th); reject(e); });
 				const onAbort = () => { if (child.pid) try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); } };
 				signal?.addEventListener("abort", onAbort, { once: true });
-				child.on("close", (code) => {
+				child.on("close", (code, sig) => {
 					if (th) clearTimeout(th);
 					signal?.removeEventListener("abort", onAbort);
 					if (signal?.aborted) reject(new Error("aborted"));
 					else if (timedOut) reject(new Error(`timeout:${timeout}`));
-					else resolvePromise({ exitCode: code });
+					// Killed by a signal: report 128+N like a shell (null would make pi throw).
+					else resolvePromise({ exitCode: code ?? (sig ? 128 + (osConstants.signals[sig] ?? 0) : 1) });
 				});
 			});
 		},
 	};
 }
 
-/** Pull a blocked write path out of a bash "Operation not permitted" error. */
+// ── Violations ──────────────────────────────────────────────────────────────
+
+interface Blocked {
+	kind: "read" | "write";
+	path: string;
+}
+
+/**
+ * Parse a filesystem violation line from the library's violation store.
+ *   macOS (seatbelt log):   "bash(123) deny(1) file-write-create /path"
+ *   Linux (seccomp monitor): "deny openat /path"   (writes only)
+ * Network denies ("deny network-outbound host:port ...") and other operations
+ * (mach-lookup, file-read-metadata probes, ...) are ignored.
+ */
+function parseViolation(line: string): Blocked | null {
+	const mac = line.match(/\bdeny(?:\(\d+\))? (file-read-data|file-write[\w-]*) (\/.+)$/);
+	if (mac) return { kind: mac[1] === "file-read-data" ? "read" : "write", path: mac[2] };
+	const linux = line.match(/^deny \S+ (\/.+)$/);
+	return linux ? { kind: "write", path: linux[1] } : null;
+}
+
+/** Output that suggests an OS-level block, worth waiting for the (async) violation log. */
+const PERMISSION_ERROR = /Operation not permitted|Permission denied|Read-only file system|\bEPERM\b|\bEACCES\b/;
+/** macOS violations arrive via `log stream`, a little after the command exits. */
+const VIOLATION_WAIT_MS = 500;
+/** Once one file violation has arrived, give its siblings a moment to follow. */
+const VIOLATION_SETTLE_MS = 100;
+/** Cap on grant prompts after one bash run, so a noisy command can't prompt-storm. */
+const MAX_PROMPTS_PER_RUN = 3;
+
+async function violationsFor(commandId: string, wait: boolean): Promise<string[]> {
+	const store = SandboxManager.getSandboxViolationStore();
+	const get = () => store.getViolationsForCommand(commandId).map((v) => v.line);
+	if (!wait) return get();
+	// Proxy (network) denies are recorded synchronously, so wait specifically for
+	// a *file* violation, then settle briefly to collect any that follow it.
+	const deadline = Date.now() + VIOLATION_WAIT_MS;
+	while (Date.now() < deadline) {
+		if (get().some((l) => parseViolation(l) !== null)) {
+			await sleep(VIOLATION_SETTLE_MS);
+			break;
+		}
+		await sleep(50);
+	}
+	return get();
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Fallback when the violation store has nothing usable (the macOS monitor can
+ * drop or misattribute lines; the Linux monitor may not be listening yet):
+ * pull a blocked write path out of the output. Linux bwrap fails writes with
+ * EROFS ("Read-only file system"), macOS seatbelt with EPERM.
+ */
 function blockedWritePath(output: string): string | null {
 	// bash's own redirection failures:
 	//   bash: /path: Operation not permitted
-	const shell = output.match(/(?:\/bin\/bash|bash|sh): (?:line \d+: )?(\/[\s\S]+?): Operation not permitted/);
+	const shell = output.match(/(?:\/bin\/bash|bash|sh): (?:line \d+: )?(\/[\s\S]+?): (?:Operation not permitted|Read-only file system)/);
 	if (shell) return shell[1];
 	// tool-reported failures (touch, tee, ...):
 	//   touch: /path: Operation not permitted
-	const tool = output.match(/^\w[\w./-]*: (\/.+?): Operation not permitted/m);
+	const tool = output.match(/^\w[\w./-]*: (\/.+?): (?:Operation not permitted|Read-only file system)/m);
 	if (tool) return tool[1];
 	// git's lock-file failures:
 	//   fatal: Unable to create '/path/.git/index.lock': Operation not permitted
-	const git = output.match(/Unable to create '([^']+)': Operation not permitted/);
+	const git = output.match(/Unable to create '([^']+)': (?:Operation not permitted|Read-only file system)/);
 	return git ? git[1] : null;
 }
 
@@ -410,7 +474,7 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	async function initSandbox(): Promise<void> {
-		await SandboxManager.initialize(runtimeConfig(), askNetwork);
+		await SandboxManager.initialize(runtimeConfig(), askNetwork, true); // true = violation monitor
 		sandboxOn = true;
 	}
 	// Hot-swap the policy without restarting the proxies (reset + initialize
@@ -431,27 +495,109 @@ export default function (pi: ExtensionAPI) {
 			if (mode !== "sandbox" || !sandboxOn) {
 				return localBash.execute(id, params, signal, onUpdate); // prompt mode / disabled: run bare
 			}
-			const sandboxed = createBashTool(cwd, { operations: sandboxedBashOps(shell), commandPrefix: shellCommandPrefix });
-			const result = await sandboxed.execute(id, params, signal, onUpdate);
-
-			// Detect an OS-level write block and offer to allow + retry once.
-			if (ctx?.hasUI) {
+			const run = async () => {
+				// Unique per run so a retry doesn't inherit the first run's violations.
+				// (Not derived from the tool call id: keys compare on their first 100 chars.)
+				const commandId = randomUUID();
+				const tool = createBashTool(cwd, { operations: sandboxedBashOps(shell, commandId), commandPrefix: shellCommandPrefix });
+				const result = await tool.execute(id, params, signal, onUpdate);
 				const text = result.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("\n");
-				const blocked = blockedWritePath(text);
-				if (blocked && !sessionDeniedWrite.has(canonicalizePath(blocked)) && !matchesPattern(blocked, loadConfig(cwd).filesystem?.denyWrite ?? [])) {
-					const grant = await promptGrant(ctx, `📝 bash write blocked: allow write to "${blocked}"?`);
-					if (grant === "deny") sessionDeniedWrite.add(canonicalizePath(blocked));
-					if (isAllow(grant)) {
-						await applyGrant("write", blocked, grant);
-						onUpdate?.({ content: [{ type: "text", text: `\n--- write allowed for "${blocked}", retrying ---\n` }], details: undefined });
-						const retry = createBashTool(cwd, { operations: sandboxedBashOps(shell), commandPrefix: shellCommandPrefix });
-						return retry.execute(id, params, signal, onUpdate);
-					}
-				}
+				// Only treat the run as sandbox-blocked if the output says so: plenty of
+				// programs attempt a denied write, shrug, and carry on successfully.
+				const blocked = PERMISSION_ERROR.test(text);
+				const violations = await violationsFor(commandId, blocked);
+				return { result, text, blocked, violations };
+			};
+			// Tell the model what the sandbox blocked — bare EPERMs are otherwise opaque.
+			const annotate = ({ result, violations }: Run) => {
+				if (!result.isError) return result;
+				// Drop reports for paths that are allowed now (the Linux monitor's lists
+				// are fixed at initialize and go stale after a grant).
+				const lines = violations.filter((l) => {
+					const b = parseViolation(l);
+					return !b || !isAllowedNow(b);
+				});
+				if (lines.length === 0) return result;
+				const shown = lines.slice(0, 20).join("\n");
+				const more = lines.length > 20 ? `\n... ${lines.length - 20} more` : "";
+				return { ...result, content: [...result.content, { type: "text" as const, text: `\n<sandbox_violations>\n${shown}${more}\n</sandbox_violations>` }] };
+			};
+			type Run = Awaited<ReturnType<typeof run>>;
+
+			const first = await run();
+			if (!ctx?.hasUI || !first.blocked) return annotate(first);
+
+			// Offer to allow blocked paths, then retry once.
+			let granted = false;
+			for (const b of blockedCandidates(first)) {
+				// Serialise with network prompts (and parallel tool calls); re-check once
+				// it's our turn, as a queued prompt may have settled it already.
+				const grant = await enqueue(async (): Promise<Grant | "already" | "skip"> => {
+					if (isAllowedNow(b)) return "already";
+					if (!offerable(b)) return "skip";
+					const title = b.kind === "write" ? `📝 bash write blocked: allow write to "${b.path}"?` : `📖 bash read blocked: allow read of "${b.path}"?`;
+					const g = await promptGrant(ctx, title);
+					if (g === "deny") (b.kind === "write" ? sessionDeniedWrite : sessionDeniedRead).add(b.path);
+					if (isAllow(g)) await applyGrant(b.kind, b.path, g);
+					return g;
+				});
+				if (grant === "already" || (grant !== "skip" && isAllow(grant))) granted = true;
 			}
-			return result;
+			if (!granted) return annotate(first);
+			onUpdate?.({ content: [{ type: "text", text: `\n--- access granted, retrying ---\n` }], details: undefined });
+			return annotate(await run());
 		},
 	});
+
+	function isAllowedNow(b: Blocked): boolean {
+		if (b.kind === "read") return matchesPattern(b.path, effAllowRead());
+		return matchesPattern(b.path, effAllowWrite()) && !matchesPattern(b.path, loadConfig(cwd).filesystem?.denyWrite ?? []);
+	}
+
+	/**
+	 * denyRead entries narrower than the home dir / root (e.g. ~/.ssh). Broad
+	 * entries like "~" are a default-deny that allowRead carves into, so
+	 * offering a grant there is normal; a targeted entry is a deliberate choice
+	 * that a quick keypress shouldn't override (allowRead beats denyRead in the
+	 * library). Writes beneath them are blocked by the library regardless.
+	 */
+	function targetedReadDenies(): string[] {
+		const broad = new Set([canonicalizePath(homedir()), "/"]);
+		return (loadConfig(cwd).filesystem?.denyRead ?? []).filter((p) => !broad.has(canonicalizePath(p)));
+	}
+
+	/** Whether to prompt for a blocked path at all (policy / session-deny checks). */
+	function offerable(b: Blocked): boolean {
+		if (matchesPattern(b.path, targetedReadDenies())) return false;
+		if (b.kind === "read") return !sessionDeniedRead.has(b.path);
+		return !sessionDeniedWrite.has(b.path) && !matchesPattern(b.path, loadConfig(cwd).filesystem?.denyWrite ?? []);
+	}
+
+	/**
+	 * Paths worth prompting for after a blocked run, from the violation store,
+	 * falling back to scraping the output for writes. Reads are only offered when
+	 * the command failed — programs probe lots of denied paths harmlessly.
+	 */
+	function blockedCandidates({ result, text, violations }: { result: { isError?: boolean }; text: string; violations: string[] }): Blocked[] {
+		const collect = (found: Blocked[]) => {
+			const seen = new Set<string>();
+			const out: Blocked[] = [];
+			for (const f of found) {
+				const b = { kind: f.kind, path: canonicalizePath(f.path) };
+				const key = `${b.kind}:${b.path}`;
+				if (seen.has(key) || isAllowedNow(b) || !offerable(b)) continue;
+				seen.add(key);
+				out.push(b);
+			}
+			return out;
+		};
+		let out = collect(violations.map(parseViolation).filter((b): b is Blocked => b !== null && (b.kind === "write" || !!result.isError)));
+		if (out.length === 0) {
+			const scraped = blockedWritePath(text);
+			if (scraped) out = collect([{ kind: "write", path: scraped }]);
+		}
+		return out.slice(0, MAX_PROMPTS_PER_RUN);
+	}
 
 	// ── tool_call: fs gates (sandbox) / confirm-everything (prompt) ─────────────
 	pi.on("tool_call", async (event, ctx) => {
@@ -504,7 +650,7 @@ export default function (pi: ExtensionAPI) {
 			}
 			return;
 		}
-		if (sandboxOn) return { operations: sandboxedBashOps(shell) };
+		if (sandboxOn) return { operations: sandboxedBashOps(shell, `user_bash#${randomUUID()}`) };
 	});
 
 	// ── lifecycle ───────────────────────────────────────────────────────────────
