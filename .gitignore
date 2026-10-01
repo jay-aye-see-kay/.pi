@@ -7,8 +7,8 @@ node_modules
 /agent/trust.json
 *.log
 /agent/settings.json
-/agent/mcp.json
 /agent/models-store.json
+/agent/mcp-auth.json
 
 # post-merge hook log
 /.githooks/last-post-merge.log

@@ -73,7 +73,8 @@
       "repo.maven.apache.org",
       "plugins-artifacts.gradle.org",
       "plugins.gradle.org",
-      "services.gradle.org"
+      "services.gradle.org",
+      "concierge.usw2.dev-us.cultureamp.io"
     ],
     "deniedDomains": []
   },
