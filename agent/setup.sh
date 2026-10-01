@@ -2,6 +2,12 @@
 # Link per-host config: settings.json / mcp.json -> *.<hostname>.json
 set -euo pipefail
 cd "$(dirname "$0")"
+repo_root="$(git -C . rev-parse --show-toplevel)"
+
+# Synced git hooks (.githooks/post-merge reinstalls local extension packages
+# after a pull); core.hooksPath is per-machine config, so set it here.
+git -C "$repo_root" config core.hooksPath .githooks
+echo "set core.hooksPath = .githooks"
 
 host="$(hostname -s)"
 for name in settings mcp; do
