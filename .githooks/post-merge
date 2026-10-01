@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Runs after `git pull` (any merge). Keeps local extension packages in sync:
+# node_modules is gitignored, so pulled changes to package.json / lockfiles /
+# patches are invisible to git — this hook re-installs and re-applies patches.
+
+set -u
+root="$(git rev-parse --show-toplevel)"
+log="$root/.githooks/last-post-merge.log"
+
+{
+  echo "== post-merge $(date) =="
+  while IFS= read -r pkg; do
+    dir="${pkg%/*}"
+    echo "-- npm install in $dir"
+    if (cd "$root/$dir" && npm install --no-audit --no-fund --silent) >> "$log" 2>&1; then
+      # patch-package only runs via postinstall when something changed, so
+      # re-apply explicitly in case a pulled patch file isn't applied yet.
+      if [ -d "$root/$dir/patches" ]; then
+        echo "-- npx patch-package in $dir"
+        (cd "$root/$dir" && npx patch-package) >> "$log" 2>&1 || echo "!! patch-package failed in $dir"
+      fi
+    else
+      echo "!! npm install failed in $dir"
+    fi
+  done < <(git ls-files 'package.json' '*/package.json')
+} >> "$log" 2>&1
