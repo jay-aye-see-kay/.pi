@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "exa": {
+      "description": "Exa hosted MCP — web search and page fetch",
+      "url": "https://mcp.exa.ai/mcp"
+    }
+  }
+}

@@ -14,6 +14,10 @@ agent="$(pwd)/agent"
 for name in settings mcp; do
   variant="$agent/${name}.${host}.json"
   [[ -f "$variant" ]] || { echo "skip: no agent/${name}.${host}.json"; continue; }
+  if [[ -e "$agent/${name}.json" && ! -L "$agent/${name}.json" ]]; then
+    echo "skip: agent/${name}.json is a regular file; merge it into agent/${name}.${host}.json and remove it first" >&2
+    continue
+  fi
   ln -sfn "$variant" "$agent/${name}.json"
   echo "linked agent/${name}.json -> ${name}.${host}.json"
 done
