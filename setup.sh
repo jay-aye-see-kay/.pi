@@ -10,16 +10,17 @@ git -C "$repo_root" config core.hooksPath .githooks
 echo "set core.hooksPath = .githooks"
 
 host="$(hostname -s)"
+agent="$(pwd)/agent"
 for name in settings mcp; do
-  variant="${name}.${host}.json"
-  [[ -f "$variant" ]] || { echo "skip: no $variant"; continue; }
-  ln -sfn "$variant" "${name}.json"
-  echo "linked ${name}.json -> $variant"
+  variant="$agent/${name}.${host}.json"
+  [[ -f "$variant" ]] || { echo "skip: no agent/${name}.${host}.json"; continue; }
+  ln -sfn "$variant" "$agent/${name}.json"
+  echo "linked agent/${name}.json -> ${name}.${host}.json"
 done
 
 # Link per-host mcporter config: ~/.mcporter/mcporter.json -> repo mcporter/mcporter.<host>.json
 # (secrets like credentials.json stay in ~/.mcporter, out of git)
-mcporter_variant="$(pwd)/../mcporter/mcporter.${host}.json"
+mcporter_variant="$(pwd)/mcporter/mcporter.${host}.json"
 if [[ -f "$mcporter_variant" ]]; then
   mkdir -p "$HOME/.mcporter"
   ln -sfn "$mcporter_variant" "$HOME/.mcporter/mcporter.json"
