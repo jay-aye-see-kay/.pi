@@ -1,3 +1,8 @@
+- git
+    - this repo is public: anything committed must be reasonably OK to publish
+    - first names, Slack channel IDs, and naming the employer and its tools are fine
+    - no secrets/tokens/credentials, and no detail about specific work (projects, customers, tickets, colleagues' work, session content)
+    - anything that may hold such content (reports, logs, auth/state files) must be gitignored, not committed
 - extensions
     - should start simple and follow pi idioms
     - should pass type checking (`cd ~/.pi/agent/extensions/ && tsc --noEmit`) (`tsc` available on $PATH)
