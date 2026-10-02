@@ -1,108 +1,38 @@
 ---
 name: atlassian
-description: Query and manage Jira and Confluence via the mcporter atlassian MCP. Use when the user mentions Jira (epics, issues, tickets, bugs, stories, tasks, sprints) or Confluence (wiki, pages, docs, spaces).
+description: Query and manage Jira and Confluence. Use when the user mentions Jira (epics, issues, tickets, bugs, stories, tasks, sprints, FEF-123 style keys) or Confluence (wiki, pages, docs, spaces, atlassian.net/wiki links).
 only-on-hosts: ["jrose-04LCLG"]
 ---
 
-# Atlassian (Jira + Confluence) via mcporter
+# Atlassian (Jira + Confluence)
 
-All access is through the `atlassian` MCP server, called with `mcporter call atlassian.<tool>`.
+Atlassian is the `mcp__atlassian` MCP server, called from `codemode`. Tool descriptions cover parameters, CQL fields and examples (`describeTool("mcp__atlassian__<tool>")`). Every call needs `cloudId` and returns raw REST JSON (5–12KB per issue/page of `self`/avatar noise), so use the helpers in [lib.js](lib.js) — load it first in every script:
 
-- `cloudId` is required on every call. Default: `cultureamp.atlassian.net`.
-- Arguments are `key=value`. JSON object/array values are quoted, e.g. `fields='{"summary":"New title"}'`.
-- Body content defaults to Markdown (`contentFormat=markdown`).
-- For less common operations see `references/jira.md` and `references/confluence.md`.
-
-## Keeping output readable
-
-These tools return large JSON blobs — always trim them:
-
-- **Server-side:** on Jira reads pass `fields=[...]` and `maxResults`/`limit` to shrink the payload (~5× smaller) before it reaches you.
-- **Client-side:** pipe through `jq` — TSV tables for lists, a compact render for single items. Recipes are shown inline below.
-- Don't use mcporter's `--output` flag; the content is JSON regardless, so it doesn't help (and `raw` is bigger).
-- For large page/description bodies on create/update, read them from a file: `body=@page.md`.
-
-## Jira — common use cases
-
-```bash
-# View an issue (trim fields, render key + status + summary + description)
-mcporter call atlassian.getJiraIssue \
-  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 responseContentFormat=markdown \
-  fields='["summary","status","assignee","issuetype","description"]' \
-  | jq -r '"\(.key) [\(.fields.status.name)] \(.fields.summary)\n\n\(.fields.description)"'
-
-# Search with JQL (trim fields + cap rows, render a compact table)
-mcporter call atlassian.searchJiraIssuesUsingJql \
-  cloudId=cultureamp.atlassian.net \
-  jql='project = FEF AND status = "In Progress"' \
-  fields='["summary","status","assignee"]' maxResults=20 \
-  | jq -r '.issues[] | [.key, .fields.status.name, (.fields.assignee.displayName // "-"), .fields.summary] | @tsv'
-mcporter call atlassian.searchJiraIssuesUsingJql \
-  cloudId=cultureamp.atlassian.net jql='parent = FEF-1234' \
-  fields='["summary","status"]' \
-  | jq -r '.issues[] | [.key, .fields.status.name, .fields.summary] | @tsv'   # epic children
-
-# Create an issue (echo just the new key)
-mcporter call atlassian.createJiraIssue \
-  cloudId=cultureamp.atlassian.net \
-  projectKey=FEF issueTypeName=Task \
-  summary="Title" description="Body in markdown" | jq -r '.key'
-
-# Edit fields (fields is a JSON object; pass null to clear)
-mcporter call atlassian.editJiraIssue \
-  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 \
-  fields='{"summary":"New title"}' | jq -r '.key'
-
-# Add a comment
-mcporter call atlassian.addCommentToJiraIssue \
-  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 \
-  commentBody="Fixed by upgrading dependency" | jq -r '.id'
-
-# Log work
-mcporter call atlassian.addWorklogToJiraIssue \
-  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 timeSpent="15m" | jq -r '.timeSpent'
-
-# Transition status (get the id first, then apply it)
-mcporter call atlassian.getTransitionsForJiraIssue \
-  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 \
-  | jq -r '.transitions[] | [.id, .name] | @tsv'
-mcporter call atlassian.transitionJiraIssue \
-  cloudId=cultureamp.atlassian.net issueIdOrKey=FEF-2611 transition='{"id":"31"}' | jq '.success'
+```js
+const atl = new Function("tools", await tools.read({ path: "~/.pi/agent/skills/atlassian/lib.js" }))(tools);
 ```
 
-Assigning, components, links, wiki markup, and the support-ticket workflow → `references/jira.md`.
+| You want to… | Script |
+|---|---|
+| Read an issue | `return atl.issue("FEF-3011")` → header, people, parent, description (markdown), last 5 comments. `{ comments: 0, fields: ["customfield_10020"] }` to tune |
+| Find issues (JQL) | `return atl.jql('project = FEF AND assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC')` → `KEY [Status] Assignee: Summary` lines; `{ max: 200, fields: ["parent"] }` |
+| Epic children | `atl.jql("parent = FEF-1234")` |
+| Read a page | `return atl.page(urlOrId)` → `# title`, url, version, markdown body (also takes `/wiki/x/…` tiny links) |
+| Find pages (CQL) | `return atl.cql('space = DE AND type = page AND lastmodified >= now("-4w") ORDER BY lastmodified DESC')` → `id \| date \| space \| title \| url`; pages up to 100 (`atl.cql(q, 300)`), notes `(N of TOTAL)` if cut. `title ~ "devbox"`, `text ~ "…"`, `creator = currentUser()` |
+| Don't know where it is | `return atl.search("replacing devbox")` — Rovo natural-language search over Jira + Confluence (costs Rovo credits) |
+| Anything else | `await atl.call("getConfluencePageDescendants", { pageId })` → parsed JSON (cloudId filled; throws on `isError`). Trim before returning |
+| Create / edit / comment / transition / link | [references/writing.md](references/writing.md) — **writes: only when asked** |
 
-## Confluence — common use cases
+Run independent reads with `Promise.all`. For big sweeps (many issues/pages) use a subagent that returns the answer + links.
 
-```bash
-# Search with CQL (cap rows, render id + title)
-mcporter call atlassian.searchConfluenceUsingCql \
-  cloudId=cultureamp.atlassian.net \
-  cql='title ~ "meeting" AND type = page' limit=20 \
-  | jq -r '.results[]? | [.content.id, .title] | @tsv'
+## Gotchas
 
-# Get a page (body is a plain string in markdown mode)
-mcporter call atlassian.getConfluencePage \
-  cloudId=cultureamp.atlassian.net pageId=123456 contentFormat=markdown \
-  | jq -r '.title, "", .body'
+- JQL `maxResults` is fine below 50 despite "(50-100)" in the schema; `atl.jql` pages via `nextPageToken`. Use `searchResultMode: "count"` (via `call`) for counts only.
+- Bodies: reads come back as markdown via the helpers; writes default to markdown too (`contentFormat`). Confluence `contentFormat: "html"` is the round-trip-safe option when editing pages with macros/panels.
+- Rovo `search` hit text contains `!--<url>` link markers — the helper strips them.
+- `fetch` only takes ARIs (`ari:cloud:…`), not URLs or keys.
+- Errors (missing issue, no permission) throw with the Jira message, e.g. `Issue does not exist or you do not have permission to see it.`
 
-# Create a page (large bodies: body=@page.md)
-mcporter call atlassian.createConfluencePage \
-  cloudId=cultureamp.atlassian.net spaceId=12345 \
-  title="Page Title" body="Content in markdown" contentFormat=markdown | jq -r '.id'
+## IDs
 
-# Update a page
-mcporter call atlassian.updateConfluencePage \
-  cloudId=cultureamp.atlassian.net pageId=123456 \
-  title="Updated Title" body="New content" contentFormat=markdown | jq -r '.id'
-```
-
-Spaces, comments, page trees, and CQL patterns → `references/confluence.md`.
-
-## Discovering tools & parameters
-
-```bash
-mcporter atlassian list                    # all tools
-mcporter atlassian list | grep -i jira      # filter
-mcporter atlassian list --all-parameters    # full parameters
-```
+cloudId `cultureamp.atlassian.net` · Jack's account `5e7ad7871e65980c42a8c01e` · Shay `712020:ecc3f064-b098-4aed-8a2c-d13896f902a4` · Felicity `712020:a946beeb-8b9a-4ec7-b1f1-ee20f4b29b86`. Others: `atl.call("lookupJiraAccountId", { searchString: "Name" })` → `data.users.users[].accountId`. Team project: **FEF** (components in [writing.md](references/writing.md)).
