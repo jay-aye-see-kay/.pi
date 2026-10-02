@@ -1,63 +1,99 @@
 # Searching & reading
 
-Use `slack_search_public_and_private` (public + private + DMs). `slack_search_public` is public-only. Returns JSON with a markdown `results` string. **No semantic search, no boolean** — terms are AND'd. Run several small keyword searches; narrow with modifiers; broaden on 0 results.
+Snippets assume the `slack()` helper from [SKILL.md](../SKILL.md).
 
-## Gotchas (cost me retries)
+Use `search_public_and_private` (public + private + DMs); `search_public` is public-only. **No semantic search, no boolean** — terms are AND'd. Run several small keyword searches in parallel; narrow with modifiers; broaden on 0 results.
 
-- **`from:<name>` returns nothing** — only `from:me` or `from:<@U123>` work. Resolve the ID first (`slack_search_users`, or [directory](directory.md)).
-- **Concise output mangles timestamps** (renders as garbage like `56518539-08-15`). For real times / ordering use the default *full* format **and** `sort=timestamp`. Concise is for keyword-scanning only.
-- **Always redirect to a file** before parsing — `mcporter … | python3 … | head` breaks the pipe (exit 1). Use `> /tmp/s.json` then `jq -r '.results'`.
+Params: `query` (Slack syntax, simplest) — or split into `keywords: ["word", "\"exact phrase\""]` + `filters: "from:<@U…> in:<#C…>"`. `sort: "timestamp"` (newest first; `sort_dir: "asc"` to flip), `limit` (max 20), `include_context`, `response_format`, `cursor`, `content_types: "files"`, `include_bots` (default false), `only_my_channels`, `after`/`before` (**Unix-seconds strings**, e.g. `String(Math.floor(Date.now()/1000) - 86400)`).
+
+## Gotchas
+
+- **`from:<display name>` returns nothing** (`from:shay`, `from:@shay`). Use `from:me`, `from:<@U123>`, or `from:@<username>` (the handle, e.g. `from:@shay.qian2`). Resolve IDs via [directory](directory.md) or `search_users`.
+- **Concise drops `Message_ts`, permalinks and channel IDs** (times now render fine). Scan with it, act on detailed.
+- **`read_thread` needs the parent ts.** Passing a reply's ts doesn't error — it returns that message + "No thread messsages". Use the URL's `thread_ts`.
+- Text is Slack mrkdwn: `&amp;`, `<url|label>`, `<@U…|Name>` — search results keep HTML entities, `read_thread` concise decodes them.
+- `with:me` doesn't cover every @mention (e.g. a tag in a thread you've not replied to) — triage runs a `<@me>` pass too.
+
+## Parse search results
+
+Detailed `results` is markdown: `### Result N of M` blocks with `Channel: #name (ID: C…)` (DMs: `Channel: DM (ID: D…)` + `Participants:`), `From: Name <email> (ID: U…)`, `Time: YYYY-MM-DD HH:MM:SS AEST`, `Message_ts:`, `Permalink: [link](…)`, `Text:`, and optional `Context before:/after:`. Next page: `` cursor `…` `` inside `pagination_info`.
+
+```js
+const hits = (md = "") => md.split(/\n### Result \d+ of \d+\n/).slice(1).map((b) => {
+  const f = (k) => b.match(new RegExp(`^${k}: (.*)$`, "m"))?.[1].trim() ?? "";
+  const link = b.match(/\]\((https:[^)]+)\)/)?.[1] ?? "";
+  return {
+    ch: f("Channel").replace(/ \(ID: \w+\)/, ""), cid: f("Channel").match(/ID: (\w+)/)?.[1],
+    from: f("From").replace(/ <[^>]*>| \(ID: \w+\)/g, ""), uid: f("From").match(/ID: (\w+)/)?.[1],
+    time: f("Time"), ts: f("Message_ts"), link, thread_ts: link.match(/thread_ts=([\d.]+)/)?.[1],
+    text: (b.split(/\nText: ?\n/)[1] ?? "").split(/\nContext (?:before|after):|\n---/)[0].trim(),
+  };
+});
+const search = async (args, pages = 1) => {          // follows the cursor up to `pages` pages
+  const out = []; let cursor;
+  for (let i = 0; i < pages; i++) {
+    const r = await slack("search_public_and_private", { limit: 20, include_context: false, ...args, cursor });
+    out.push(...hits(r.results));
+    cursor = r.pagination_info?.match(/cursor `([^`]+)`/)?.[1];
+    if (!cursor) break;
+  }
+  return out;
+};
+// e.g. parallel keyword variants, compact output
+const res = (await Promise.all(["rollback", "revert"].map((k) => search({ query: `from:me ${k}`, sort: "timestamp" })))).flat();
+return res.map((m) => `${m.time.slice(0, 16)} ${m.ch}: ${m.text.slice(0, 150)}\n  ${m.link}`).join("\n");
+```
+
+Refine queries rather than paging endlessly.
 
 ## Daily triage
 
-"What's happened today relevant to me?" = three passes (`after:` = today, `sort=timestamp`):
+"What's happened today relevant to me?" — `with:me` (everything in convos you're part of, incl. replies that don't tag you) + `<@me>` (tags, incl. channels you haven't replied in), in parallel, grouped per conversation. ⏳ = latest non-me message is newer than my latest one there (i.e. probably waiting on me). Needs `hits`/`search` above.
 
-```bash
-ME=U010S548P0F; SINCE=$(date -v-1d +%F 2>/dev/null || date -d yesterday +%F)
-# everything in threads/DMs/channels you're part of — incl. replies that DON'T tag you
-mcporter call slack.slack_search_public_and_private query="with:me after:$SINCE" sort=timestamp > /tmp/t_withme.json
-# @mentions / tags (also catches channels you haven't replied in)
-mcporter call slack.slack_search_public_and_private query="<@$ME> after:$SINCE" sort=timestamp > /tmp/t_mentions.json
+```js
+const ME = "U010S548P0F";
+const BOTS = /Slackbot|Jira|Camper Portal Bot|agent-orchestrator|Atlassian Home/;
+const after = String(Math.floor(Date.now() / 1000) - 24 * 3600);
+const all = (await Promise.all([
+  search({ query: "with:me", after, sort: "timestamp" }, 3),
+  search({ query: `<@${ME}>`, after, sort: "timestamp" }, 3),
+])).flat();
+const convos = {};
+for (const m of all) (convos[`${m.cid}/${m.thread_ts ?? ""}`] ??= new Map()).set(m.ts, m);
+return Object.values(convos).map((byTs) => {
+  const msgs = [...byTs.values()].sort((a, b) => b.ts - a.ts);
+  const mine = msgs.find((m) => m.uid === ME);
+  const theirs = msgs.filter((m) => m.uid !== ME && !BOTS.test(m.from));
+  return theirs.length && { waiting: !mine || +theirs[0].ts > +mine.ts, n: theirs.length, ...theirs[0] };
+}).filter(Boolean).sort((a, b) => b.waiting - a.waiting || b.ts - a.ts)
+  .map((r) => `${r.waiting ? "⏳" : "✓"} ${r.time.slice(5, 16)} ${r.ch} ${r.from} (+${r.n}): ${r.text.replace(/\s+/g, " ").slice(0, 120)}\n   ${r.link}`)
+  .join("\n");
 ```
 
-**`with:me` is the workhorse** — it surfaces *other people's* messages in conversations you're in, so filtering out your own (`grep -v "($ME)"`) and bots = things said around you today, including replies in your threads that never @-mentioned you. Add the `<@you>` pass to catch mentions in channels you haven't otherwise touched. `to:me` = DMs to you **and** @mentions (a bot-heavy subset of the above). For a DM's full back-and-forth, grab the `channel_id` (`D…`) and `slack_read_channel`. Delegate the sweep to a subagent that returns only actionable items + permalinks.
+Only messages inside the window count, so a reply I made before it won't mark a thread ✓. `to:me` = DMs to you + @mentions (a subset). For a DM's full back-and-forth: `slack("read_channel", { channel_id: "U…" /* or D… */, limit: 20, response_format: "concise" })`.
 
-Slack can't literally query "waiting on me", but `with:me` sorted by time gets you there: a thread whose latest non-you message is newer than your latest message in it is waiting on you.
+## Modifiers (inside `query` / `filters`)
 
-## Token discipline
+`from:me` / `from:<@U123>` / `from:@username` · `to:me` · `with:me` · `in:#channel` / `in:<#C123>` / `-in:channel` · `in:<@U123>` (a DM) · `is:dm` · `before:`/`after:`/`on:YYYY-MM-DD` · `during:month` · `is:thread` `has:link` `has:file` `has:pin` `has:reaction` `has::emoji:` · `"exact phrase"` · `-word` · `foo*` (3+ chars). Same modifier repeated = OR (except `with`/`has` = AND).
 
-- Scan with `response_format=concise include_context=false limit=20`; only expand real hits (`include_context=true` or `slack_read_thread`).
-- Save & grep instead of dumping:
-  ```bash
-  mcporter call slack.slack_search_public_and_private query="from:me incident rollback" limit=20 include_context=false > /tmp/s.json
-  jq -r '.results' /tmp/s.json | grep -i -B1 -A3 rollback
-  ```
-- `limit` max 20; next-page `cursor` is in `pagination_info` — refine rather than page endlessly.
-- Delegate broad searches to a subagent; have it return only the answer, key quotes, and permalinks.
-
-## Modifiers (inside `query`)
-
-`from:me` / `from:<@U123>` · `to:me` · `with:me` (any convo you're in — incl. others' replies) · `in:#channel` / `in:<#C123>` / `-in:channel` · `in:<@U123>` (a DM) · `before:`/`after:`/`on:YYYY-MM-DD` · `during:month` · `is:thread` `has:link` `has:file` `has:pin` · `"exact phrase"` · `-word` · `foo*` (wildcard, 3+ chars).
-
-Top-level params: `sort=timestamp` (newest first), `content_types=files` with a `type:` filter (images, pdfs, documents, spreadsheets, canvases…).
-
-```bash
-mcporter call slack.slack_search_public_and_private query='from:me "feature flag" in:#team_hotel' sort=timestamp limit=20
-```
+Files: `{ query: "in:#team_hotel", content_types: "files" }` → `File ID: F…` for `read_file`.
 
 ## Permalinks
 
-`https://cultureamp.slack.com/archives/C02NUQ65U2C/p1751932800001900` → `channel_id=C02NUQ65U2C`, `ts` = insert a dot before the last 6 digits → `1751932800.001900`. Reply links carry `?thread_ts=…&cid=…` directly.
+`…/archives/C02NUQ65U2C/p1751932800001900` → `channel_id: "C02NUQ65U2C"`, ts = dot before the last 6 digits → `"1751932800.001900"`. Reply links also carry `?thread_ts=…&cid=…`.
 
-```bash
-url='…/archives/C02NUQ65U2C/p1751932800001900'
-cid=$(sed -E 's#.*/archives/([^/]+)/.*#\1#' <<<"$url")
-ts=$(sed -E 's#.*/p([0-9]+).*#\1#' <<<"$url" | sed -E 's/([0-9]{6})$/.\1/')
-mcporter call slack.slack_read_thread channel_id="$cid" message_ts="$ts"
+```js
+const parseLink = (url) => {
+  const [, channel_id, p] = url.match(/archives\/(\w+)\/p(\d+)/);
+  const ts = `${p.slice(0, -6)}.${p.slice(-6)}`;
+  return { channel_id, ts, thread_ts: url.match(/thread_ts=([\d.]+)/)?.[1] ?? ts };
+};
+const { channel_id, thread_ts } = parseLink(url);
+return (await slack("read_thread", { channel_id, message_ts: thread_ts, response_format: "concise" })).messages;
 ```
+
+`read_thread` detailed gives `Message TS:` per reply (needed to react/reply); concise is just `> Name: text` lines. Leave `limit` unset (default 100) — a small `limit` returned the *last* replies, not the first.
 
 ## Other read tools
 
-`slack_read_channel channel_id=C… limit=30 response_format=concise` · `slack_read_thread channel_id=C… message_ts=…` · `slack_read_user_profile user_id=U…` · `slack_list_channel_members channel_id=C… response_format=ids_only` · `slack_read_file file_id=F…` · `slack_search_channels query=…` · `slack_search_users query=…`.
-
-`slack_search_channels` often returns nothing for **private** channels — fall back to `slack_search_public_and_private` (message content reveals the channel ID).
+`read_channel({ channel_id, limit: 30, response_format: "concise", oldest?, latest? })` (newest first; user_id works for DMs) · `read_user_profile({ user_id })` · `list_channel_members({ channel_id, response_format: "ids_only" })` · `list_user_channels({ name_prefix: "team_", format: "names_only", types: "public_channel,private_channel,im,mpim" })` · `get_reactions({ channel_id, message_ts })` · `read_file({ file_id })` · `search_users({ query: "Name", response_format: "concise" })` · `search_channels({ query, channel_types: "public_channel,private_channel" })`.

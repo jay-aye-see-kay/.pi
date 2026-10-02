@@ -12,7 +12,7 @@ Mention `<@U010S548P0F>` · usergroup `<!subteam^S123>` · channel `<#C123>` · 
 
 Gripe about a tool: `:old-man-yells-at-claude:` · `:old-man-yells-at-google:` · `:old_man_yells_at_netskope:` (underscores) · `:old-man-yells-at-datadog:` · `:old-man-yells-at-python:` · `:old-man-yells-at-miro:` · `:old-man-yells-at-aws:` · `:old-man-yells-at-buildkite:`
 
-Verify any other (exact-name match only): `mcporter call slack.slack_search_emojis query="name"`.
+Verify others (custom only; case-insensitive substring, comma-separated, up to 200): `slack("search_emojis", { query: "old-man-yells,old_man_yells" })` → `results` lists `:name:` (aliases noted).
 
 ## Not available
 

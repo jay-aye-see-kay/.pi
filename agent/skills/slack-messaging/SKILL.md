@@ -1,36 +1,49 @@
 ---
 name: slack-messaging
-description: Search, read, and send Slack messages via mcporter CLI. Use for "find when I said X on slack", "any conversation about X", "message <person/team> about X", "send to #channel" (a leading # usually means a Slack channel), "respond to this thread <link>", or getting context from a Slack link.
+description: Search, read, and send Slack messages. Use for "find when I said X on slack", "any conversation about X", "message <person/team> about X", "send to #channel" (a leading # usually means a Slack channel), "respond to this thread <link>", or getting context from a Slack link.
 only-on-hosts: ["jrose-04LCLG"]
 ---
 
-# Slack via mcporter
+# Slack via codemode
 
-`mcporter call slack.<tool> key=value ...` → JSON with a markdown `results` field. Every tool name is prefixed `slack_` (e.g. `slack.slack_search_public_and_private`).
+The `slack` MCP server's tools are called from a `codemode` script: `await tools.mcp__slack__slack_<tool>({...})` (e.g. `tools.mcp__slack__slack_search_public_and_private`). Args are JSON-typed (`limit: 20`, `include_context: false`). Exact schema: `describeTool("mcp__slack__slack_<tool>")`.
+
+Every call resolves to a `CallToolResult` whose `content[0].text` is a **JSON string** holding one markdown blob — `results` (search), `messages` (read_thread/read_channel), `result` (profile, list_user_channels), `members` — plus `pagination_info`. Errors resolve (don't throw) with `isError: true` and plain text `execution_failed: channel_not_found …`; missing required args throw. Paste this helper at the top of scripts:
+
+```js
+const slack = async (tool, args) => {
+  const r = await tools[`mcp__slack__slack_${tool}`](args);
+  const t = r.content?.[0]?.text ?? "";
+  if (r.isError) throw new Error(`${tool}: ${t}`);
+  try { return JSON.parse(t); } catch { return t; }
+};
+const r = await slack("search_public_and_private", { query: "from:me rollback", limit: 10, include_context: false });
+return r.results;
+```
 
 | You want to… | Move |
 |---|---|
-| Find when **I** said X | `slack_search_public_and_private query="from:me X"` |
-| **What's waiting on me** today | see [daily triage](references/searching.md#daily-triage) |
-| Any conversation about X | `slack_search_public_and_private query="X"` |
-| Context from a Slack **link** | parse link → `slack_read_thread channel_id=C… message_ts=…` (needs `message_ts`, **not** `thread_ts`; use the URL's `thread_ts` as `message_ts`) |
-| Message a person/team | resolve ID → `slack_send_message_draft` |
-| Send to **#channel** (leading # = channel name) | resolve channel ID → `slack_send_message_draft` |
-| Reply to a thread **link** | parse link → `slack_send_message thread_ts=…` |
-| Find a **channel ID** by name | `slack_search_channels query="name" response_format=concise` |
+| Find when **I** said X | `slack("search_public_and_private", { query: "from:me X" })` |
+| **What's waiting on me** today | [daily triage](references/searching.md#daily-triage) script |
+| Any conversation about X | `slack("search_public_and_private", { query: "X" })` |
+| Context from a Slack **link** | [`parseLink`](references/searching.md#permalinks) → `slack("read_thread", { channel_id, message_ts: thread_ts })` (the **parent** ts — a reply's ts silently returns "No thread messages") |
+| Message a person/team | resolve ID → `send_message_draft` |
+| Send to **#channel** (leading # = channel name) | resolve channel ID → `send_message_draft` |
+| Reply to a thread **link** | `parseLink` → `send_message({ channel_id, thread_ts, message })` |
+| Find a **channel ID** by name | `slack("search_channels", { query: "name", channel_types: "public_channel,private_channel", response_format: "concise" })` |
 
 Details: [searching](references/searching.md) · [sending](references/sending.md) · [formatting](references/formatting.md) · [directory](references/directory.md).
 
 ## Token discipline (search is a hog)
 
-- Scan with `response_format=concise include_context=false limit=20`; re-fetch full context only for real hits.
-- Pipe big results to a file and grep, don't dump into context.
-- Delegate broad searches to a subagent that returns only the answer + permalinks.
+- **Filter inside the script, return only what's needed** — the script sees the full result, the model only sees what you `return`. Use the [`hits()` parser](references/searching.md#parse-search-results) and return compact lines (time, channel, sender, trimmed text, permalink).
+- Run independent searches in parallel: `await Promise.all([...])`.
+- `include_context: false`, `limit: 20`; expand only real hits (`read_thread`).
+- `response_format: "concise"` is fine for eyeballing keywords but drops `Message_ts`, permalinks and channel IDs — use the default detailed format whenever you need to act on a hit.
+- Delegate broad sweeps to a subagent that returns only the answer + permalinks.
 
 ## Common IDs
 
-Me (Jack): `U010S548P0F`. Ignore bot senders when triaging: Camper Portal Bot, Jira, Slackbot, agent-orchestrator (`U0B52APG03E`). Channels (private): #wol_devex `C02NUQ65U2C` · #team_hotel `C0B97KTKH25` · #team_agentic_engineering `C0BAJEK3HH8`. Shay `U09UM9ZC6NN` · Felicity `U0ADQP9DSNS` · Elliott `UFMU99PCG`. Others → [directory](references/directory.md).
+Me (Jack): `U010S548P0F`. Ignore bot senders when triaging: Camper Portal Bot, Jira, Slackbot, Atlassian Home, agent-orchestrator (`U0B52APG03E`). Channels (private): #wol_devex `C02NUQ65U2C` · #team_hotel `C0B97KTKH25` · #team_agentic_engineering `C0BAJEK3HH8`. Shay `U09UM9ZC6NN` · Felicity `U0ADQP9DSNS` · Elliott `UFMU99PCG`. Others → [directory](references/directory.md).
 
-Resolve a channel name → ID (needed before sending): `mcporter call slack.slack_search_channels query="learn_ai_agents" response_format=concise` → `#learn_ai_agents (C07318DS6MV)`. Add `channel_types=public_channel,private_channel` for private ones.
-
-Send: `mcporter call slack.slack_send_message_draft channel_id=C… message="…"` (DM = user_id as channel_id). No Block Kit. Full tool list: `mcporter list slack`.
+Send: `slack("send_message_draft", { channel_id: "C…", message: "…" })` (DM = user_id as `channel_id`). **Draft first** unless the user approved the exact text. No Block Kit. All tools: `(await describeNamespace("mcp__slack")).tools`.
