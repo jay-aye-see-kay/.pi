@@ -16,3 +16,6 @@ node_modules
 
 # post-merge hook log
 /.githooks/last-post-merge.log
+
+# coach state (sensitive work content)
+/coach/
