@@ -1,9 +1,0 @@
-{
-  "$schema": "https://raw.githubusercontent.com/steipete/mcporter/main/mcporter.schema.json",
-  "mcpServers": {
-    "exa": {
-      "description": "Exa hosted MCP — web search and page fetch",
-      "baseUrl": "https://mcp.exa.ai/mcp"
-    }
-  }
-}

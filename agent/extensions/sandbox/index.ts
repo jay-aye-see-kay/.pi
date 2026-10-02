@@ -217,7 +217,7 @@ function sandboxedBashOps(shellPath: string | undefined, commandId: string): Bas
 			const wrapped = await SandboxManager.wrapWithSandbox(command, undefined, undefined, undefined, { commandId });
 			// The sandbox isolates network via an HTTP(S) proxy (HTTPS_PROXY). Node's
 			// fetch/undici ignores that proxy unless NODE_USE_ENV_PROXY=1, so Node-based
-			// CLIs (e.g. mcporter MCP calls) get EPERM. Opt them into the proxy here.
+			// CLIs (npx tools, node scripts) get EPERM. Opt them into the proxy here.
 			const childEnv = { ...(env ?? process.env) };
 			if (childEnv.NODE_USE_ENV_PROXY === undefined) childEnv.NODE_USE_ENV_PROXY = "1";
 			try {
