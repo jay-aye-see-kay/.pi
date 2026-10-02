@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.99.2",
+  "lastChangelogVersion": "1.0.0",
   "theme": "light",
   "defaultProvider": "github-copilot",
   "defaultModel": "claude-opus-5.5",
@@ -27,5 +27,6 @@
     "showTerminalProgress": true
   },
   "collapseChangelog": true,
+  "tuiMode": "regular",
   "treeFilterMode": "no-tools"
 }

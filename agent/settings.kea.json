@@ -13,5 +13,6 @@
     "showTerminalProgress": true
   },
   "collapseChangelog": true,
+  "tuiMode": "regular",
   "treeFilterMode": "no-tools"
 }
