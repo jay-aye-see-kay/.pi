@@ -21,6 +21,12 @@
 // bk reads BUILDKITE_API_TOKEN directly (highest precedence), so this works
 // even though the sandbox can't reach bk's own keyring credential store.
 //
+// For PI_CLAUDE_OAUTH_TOKEN (claude-artifact skill): run `claude setup-token`
+// (long-lived subscription token), then store it:
+//   security add-generic-password -U -a "$USER" -s pi-claude-oauth-token -w
+// Kept out of CLAUDE_CODE_OAUTH_TOKEN so it doesn't change how other claude
+// invocations authenticate; the skill's script passes it through itself.
+//
 // Map: env var name -> keychain generic-password service name.
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
@@ -34,6 +40,7 @@ const SECRETS: Record<string, string> = {
   // github.com/jay-aye-see-kay/* remotes. gh's default stays the cultureamp token.
   GITHUB_PERSONAL_TOKEN: "pi-github-personal-token",
   BUILDKITE_API_TOKEN: "pi-buildkite-token",
+  PI_CLAUDE_OAUTH_TOKEN: "pi-claude-oauth-token",
 };
 
 function readKeychain(service: string): string | undefined {
