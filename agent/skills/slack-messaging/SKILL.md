@@ -1,49 +1,49 @@
 ---
 name: slack-messaging
-description: Search, read, and send Slack messages. Use for "find when I said X on slack", "any conversation about X", "message <person/team> about X", "send to #channel" (a leading # usually means a Slack channel), "respond to this thread <link>", or getting context from a Slack link.
+description: Search, read, and send Slack messages. Use for "find when I said X on slack", "any conversation about X", "message <person/team> about X", "send to #channel" (a leading # usually means a Slack channel), "respond to this thread <link>", "what's waiting on me", or getting context from a Slack link.
 only-on-hosts: ["jrose-04LCLG"]
 ---
 
-# Slack via codemode
+# Slack
 
-The `slack` MCP server's tools are called from a `codemode` script: `await tools.mcp__slack__slack_<tool>({...})` (e.g. `tools.mcp__slack__slack_search_public_and_private`). Args are JSON-typed (`limit: 20`, `include_context: false`). Exact schema: `describeTool("mcp__slack__slack_<tool>")`.
-
-Every call resolves to a `CallToolResult` whose `content[0].text` is a **JSON string** holding one markdown blob — `results` (search), `messages` (read_thread/read_channel), `result` (profile, list_user_channels), `members` — plus `pagination_info`. Errors resolve (don't throw) with `isError: true` and plain text `execution_failed: channel_not_found …`; missing required args throw. Paste this helper at the top of scripts:
+Slack is the `mcp__slack` MCP server, called from `codemode`. Its tool descriptions are good (search modifiers, `keywords`/`filters` split, examples): `describeTool("mcp__slack__slack_<tool>")`. Results are a JSON string wrapping one markdown blob, so use the helpers in [lib.js](lib.js) — load it first in every script:
 
 ```js
-const slack = async (tool, args) => {
-  const r = await tools[`mcp__slack__slack_${tool}`](args);
-  const t = r.content?.[0]?.text ?? "";
-  if (r.isError) throw new Error(`${tool}: ${t}`);
-  try { return JSON.parse(t); } catch { return t; }
-};
-const r = await slack("search_public_and_private", { query: "from:me rollback", limit: 10, include_context: false });
-return r.results;
+const slack = new Function("tools", await tools.read({ path: "~/.pi/agent/skills/slack-messaging/lib.js" }))(tools);
 ```
 
-| You want to… | Move |
+| You want to… | Script |
 |---|---|
-| Find when **I** said X | `slack("search_public_and_private", { query: "from:me X" })` |
-| **What's waiting on me** today | [daily triage](references/searching.md#daily-triage) script |
-| Any conversation about X | `slack("search_public_and_private", { query: "X" })` |
-| Context from a Slack **link** | [`parseLink`](references/searching.md#permalinks) → `slack("read_thread", { channel_id, message_ts: thread_ts })` (the **parent** ts — a reply's ts silently returns "No thread messages") |
-| Message a person/team | resolve ID → `send_message_draft` |
-| Send to **#channel** (leading # = channel name) | resolve channel ID → `send_message_draft` |
-| Reply to a thread **link** | `parseLink` → `send_message({ channel_id, thread_ts, message })` |
-| Find a **channel ID** by name | `slack("search_channels", { query: "name", channel_types: "public_channel,private_channel", response_format: "concise" })` |
+| What's **waiting on me** | `return slack.triage()` (`{ hours: 72 }` after a weekend) — ❗ tagged/DM unanswered · ⏳ replies after mine · · FYI. Judge the list; don't just relay it. |
+| Find when **I** said X | `return slack.show(await slack.search({ query: "from:me X", sort: "timestamp" }))` |
+| Conversation about X / by someone | `slack.search({ query: "from:<@U…> X", after: slack.ago(30) }, pages)`; several variants via `Promise.all` |
+| Context from a **link** | `return slack.thread(url)` (handles reply links, inlines linked messages; `{ format: "detailed" }` for per-reply `Message TS`) |
+| Any other tool | `await slack.call("read_channel", { channel_id, limit: 20, response_format: "concise" })` → parsed JSON; throws on `isError` |
+| Send / reply / react | see [Sending](#sending) |
 
-Details: [searching](references/searching.md) · [sending](references/sending.md) · [formatting](references/formatting.md) · [directory](references/directory.md).
+`search()` returns records `{ ch, cid, from, uid, time, ts, link, thread_ts, text }` — filter/aggregate in the script and return only compact lines (`slack.show`). Delegate broad sweeps to a subagent that returns the answer + permalinks.
 
-## Token discipline (search is a hog)
+## Gotchas
 
-- **Filter inside the script, return only what's needed** — the script sees the full result, the model only sees what you `return`. Use the [`hits()` parser](references/searching.md#parse-search-results) and return compact lines (time, channel, sender, trimmed text, permalink).
-- Run independent searches in parallel: `await Promise.all([...])`.
-- `include_context: false`, `limit: 20`; expand only real hits (`read_thread`).
-- `response_format: "concise"` is fine for eyeballing keywords but drops `Message_ts`, permalinks and channel IDs — use the default detailed format whenever you need to act on a hit.
-- Delegate broad sweeps to a subagent that returns only the answer + permalinks.
+- People in queries: `from:<@U…>` or `from:me` — display names (`from:shay`) silently return nothing. IDs → [directory](references/directory.md) or `call("search_users", { query: "Name" })`.
+- `read_thread` needs the **parent** ts (`slack.thread` does this). "No thread messsages" = you passed a reply ts, *or* the post has no replies.
+- `with:me` misses some @mentions; `triage()` also searches `<@me>`.
+- `response_format: "concise"` drops `Message_ts`, permalinks and channel IDs — don't use it with `search()`.
+- `search_channels` is public-only unless `channel_types: "public_channel,private_channel"`; or `call("list_user_channels", { name_prefix: "team_" })`.
+- Text `(no text — file/attachment)` = file-only message; search with `content_types: "files"` for `File ID`, then `read_file`.
+
+## Sending
+
+**Draft first** (`send_message_draft`, shows in my Slack drafts) unless I gave/approved the exact text — if you reworded it, draft. DM = user ID as `channel_id`. Must be a channel member (`not_in_channel`); one draft per channel (`draft_already_exists`). `send_message` returns the permalink — surface it. Markdown, mentions, emoji → [formatting](references/formatting.md).
+
+```js
+await slack.call("send_message_draft", { channel_id: "C0B97KTKH25", message: `Multi-line *markdown* :done_check:` });
+const { channel_id, thread_ts } = slack.parseLink(url);           // reply in thread (reply_broadcast: true to echo)
+await slack.call("send_message", { channel_id, thread_ts, message: "On it" });
+await slack.call("add_reaction", { channel_id, message_ts: slack.parseLink(url).ts, emoji: "eyes" });
+// schedule_message: post_at = unix seconds NUMBER, ≥2 min ahead
+```
 
 ## Common IDs
 
-Me (Jack): `U010S548P0F`. Ignore bot senders when triaging: Camper Portal Bot, Jira, Slackbot, Atlassian Home, agent-orchestrator (`U0B52APG03E`). Channels (private): #wol_devex `C02NUQ65U2C` · #team_hotel `C0B97KTKH25` · #team_agentic_engineering `C0BAJEK3HH8`. Shay `U09UM9ZC6NN` · Felicity `U0ADQP9DSNS` · Elliott `UFMU99PCG`. Others → [directory](references/directory.md).
-
-Send: `slack("send_message_draft", { channel_id: "C…", message: "…" })` (DM = user_id as `channel_id`). **Draft first** unless the user approved the exact text. No Block Kit. All tools: `(await describeNamespace("mcp__slack")).tools`.
+Me `U010S548P0F` · Shay `U09UM9ZC6NN` · Felicity `U0ADQP9DSNS` · Elliott `UFMU99PCG` · #team_hotel `C0B97KTKH25` · #wol_devex `C02NUQ65U2C` · #team_agentic_engineering `C0BAJEK3HH8`. More → [directory](references/directory.md).
