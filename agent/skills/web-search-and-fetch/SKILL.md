@@ -3,29 +3,38 @@ name: web-search-and-fetch
 description: Search the web and fetch page content. Use when user wants to search the web, look something up online, or read a URL's content.
 ---
 
-## Quick reference
+# Web search and fetch (Exa)
 
-```bash
-# Web search — returns clean text/highlights from top results
-mcporter call exa.web_search_exa \
-  query="blog post comparing React and Vue performance" \
-  numResults=5
+Exa is the `mcp__exa` MCP server, called from `codemode`. Query tips, such as describing the ideal page and using `category:people` or `category:company`, are in the tool descriptions.
 
-# Fetch full page content as markdown (batch multiple URLs)
-mcporter call exa.web_fetch_exa \
-  urls='["https://example.com/a", "https://example.com/b"]' \
-  maxCharacters=5000
+```js
+const txt = (r) => r.content.map((c) => c.text).join("\n");
+
+// Search. Both query and objective are required. Each hit is ~8KB of title, URL, date and highlights.
+const hits = txt(await tools.mcp__exa__web_search_exa({
+  query: "blog post comparing bun and node HTTP performance",
+  objective: "benchmark numbers for bun vs node HTTP throughput; skip vendor marketing",
+  numResults: 5,
+}));
+
+// Fetch full pages as markdown. Batch the URLs; maxCharacters is per page (default 3000).
+// A failed URL comes back inline as "Error fetching <url>: …" and doesn't fail the call.
+const pages = txt(await tools.mcp__exa__web_fetch_exa({ urls: ["https://a…", "https://b…"], maxCharacters: 8000 }));
 ```
 
-## Query tips
+Results are large, so filter them in-script before returning. For example, return only titles and URLs:
 
-- Describe the ideal page, not keywords: `"blog post comparing React and Vue performance"`, not `"React vs Vue"`.
-- Add `category:people` or `category:company` to search LinkedIn profiles / companies — e.g. `query="category:people John Doe software engineer"`.
-- Search first; when highlights aren't enough, follow up with `web_fetch_exa` on the best URLs.
+```js
+hits.split(/\n(?=Title: )/).map((h) => h.match(/^Title: (.*)\nURL: (.*)/)?.slice(1).join(" — ")).join("\n")
+```
 
-## When to use subagent
+Alternatively, run several searches in parallel with `Promise.all`.
 
-Offload most use of exa to subagent to prevent context pollution
+## Freshness
 
-- **Main agent** — a single quick search when you just need one fact or URL and the highlights answer it.
-- **Subagent** — anything that fetches full page content, batches multiple URLs, or iterates (search → fetch → search). Have it do the digging and return just the synthesized answer plus the source URLs.
+Exa serves cached pages that can be **weeks stale**, including `…/releases/latest` and changelogs. Tested 2026-10: it reported mise 2026.9.1 as latest when 2026.9.18 was out. For "latest version" or "current status" questions, check the primary source. For GitHub projects, use `gh api repos/<owner>/<repo>/releases/latest --jq .tag_name`. Use `date` to know what "recent" means.
+
+## When to use a subagent
+
+- **Main agent:** quick lookups; one script that searches and fetches and filters to a short result is fine.
+- **Subagent:** anything that fetches full pages, batches URLs, or iterates (search → fetch → search). Have it return the synthesised answer plus source URLs.

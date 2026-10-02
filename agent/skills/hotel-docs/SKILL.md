@@ -1,75 +1,52 @@
 ---
 name: hotel-docs
-description: Search Culture Amp internal/company engineering knowledge via the hotel MCP (mcporter CLI) — package & API docs, Kaizen components, engineering standards, tech radar, and the DX Insights Metabase. Use for "how do we do X at Culture Amp", CA package/API usage, Kaizen UI components, "what's our standard for…", "is <tech> adopt/retire", or internal DX metrics.
+description: Search Culture Amp internal/company engineering knowledge via the hotel MCP — package & API docs, Kaizen components, engineering standards, tech radar, and the DX Insights Metabase. Use for "how do we do X at Culture Amp", CA package/API usage, Kaizen UI components, "what's our standard for…", "is <tech> adopt/retire", or internal DX metrics.
 only-on-hosts: ["jrose-04LCLG"]
 ---
 
-## Quick reference
+# Hotel docs
 
-```bash
-# Search internal docs — packages, APIs, Kaizen components, company systems (start here)
-mcporter call hotel.search_package_docs query="kaizen button component"
-mcporter call hotel.search_package_docs query="analytics event tracking" language=typescript limit=5
+Hotel is the `mcp__hotel` MCP server, called from `codemode`. Tool descriptions cover the args (`describeTool("mcp__hotel__<tool>")`). Outputs are plain text, except the two DX Insights tools, which return JSON. `const txt = (r) => r.content.map((c) => c.text).join("\n");`
 
-# What packages are searchable?
-mcporter call hotel.list_packages
+| You want to… | Script |
+|---|---|
+| CA package / API / Kaizen docs (start here) | `return txt(await tools.mcp__hotel__search_package_docs({ query: "kaizen button component", limit: 3 }))`. Add `language: "typescript"` to narrow it; an invalid language lists the valid ones. Each hit is ~1KB with code |
+| Which packages are covered | `tools.mcp__hotel__list_packages({})` |
+| An engineering standard | `list_engineering_standards({ query: "compute" })` → `get_engineering_standard_by_id({ id })` (~4KB). The list query is loose ranking (~1.3KB per standard), so trim to ids with the recipe below. `ai_summary` is a hint and may be wrong; read the full standard. `status` is an array, defaulting to `["current", "adopting"]` |
+| Tech radar: adopt / experiment / contain / retire | `list_tech_radars({ query: "graphql", category: ["adopt", "experiment", "contain", "retire"] })`. `category` is an **array** and defaults to `["adopt"]`, so without it `query: "graphql"` misses GraphQL, which is `contain`. `query` matches name/description, not the radar (Front end, Back end…), so filter by radar in-script with the recipe below |
+| DX Insights metrics (Postgres via Metabase, read-only SELECT/CTE) | Use the schema recipe below first, then `dx_insights_query({ query })` |
 
-# Engineering standards — list/search, then fetch full authoritative content by id
-mcporter call hotel.list_engineering_standards query="backend"
-mcporter call hotel.get_engineering_standard_by_id id="<id-from-list>"
+```js
+// Standards → "id — title (status)" lines
+const std = txt(await tools.mcp__hotel__list_engineering_standards({ query: "compute" }));
+std.split(/\n(?=title: )/).map((s) => `${s.match(/^id: (.*)$/m)?.[1]} — ${s.match(/^title: (.*)$/m)?.[1]} (${s.match(/^status: +(.*)$/m)?.[1]})`).join("\n");
 
-# Tech radar — is a technology adopt / experiment / contain / retire?
-mcporter call hotel.list_tech_radars query="graphql"
-
-# DX Insights (Metabase) — get schema FIRST, then read-only SQL
-mcporter call hotel.dx_insights_get_schema
-mcporter call hotel.dx_insights_query query="SELECT ... LIMIT 100"
-
-# What is this server?
-mcporter call hotel.about_self
+// Front-end retire entries (entries are separated by "---"; "- radar: Front end" line)
+const rad = txt(await tools.mcp__hotel__list_tech_radars({ category: ["retire"] }));
+rad.split(/\n---\n/).map((e) => e.trim()).filter((e) => /^- radar: Front end/m.test(e)).map((e) => e.split("\n")[0]);
 ```
 
-## Tools
+Run independent calls with `Promise.all`.
 
-- **`search_package_docs`** — the primary tool. Authoritative, up-to-date CA docs for
-  packages, APIs, Kaizen components, and company-specific systems. Args: `query`
-  (space-separated terms, required), `language?`, `limit?`. An invalid `language`
-  returns the list of valid ones.
-- **`list_packages`** — names available to `search_package_docs`.
-- **`list_engineering_standards`** — search/list standards; returns `id`, `title`,
-  `status`, and an **`ai_summary` (may be incomplete/inaccurate)**. `status` defaults
-  to `current`+`adopting`. Always follow up with `get_engineering_standard_by_id`
-  before relying on a standard.
-- **`get_engineering_standard_by_id`** — full authoritative standard text by `id`.
-- **`list_tech_radars`** — tech radar entries; `category` defaults to `adopt`.
-  Categories: `adopt` / `experiment` / `contain` / `retire`.
-- **`dx_insights_get_schema`** → **`dx_insights_query`** — read-only (SELECT/CTE only)
-  SQL against the internal DX Insights Metabase. Call the schema tool first.
-- **`about_self`** — what the server is / who maintains it / data sources.
+## DX Insights
+
+```js
+const txt = (r) => r.content.map((c) => c.text).join("\n");
+// The schema is ~30KB of JSON (33 tables). Return one line per table, then the column details for the tables you need.
+const s = JSON.parse(txt(await tools.mcp__hotel__dx_insights_get_schema({})));
+const tables = s.tables.map((t) => `${t.name}: ${t.columns.map((c) => c.name).join(", ")}`).join("\n");
+const cols = (name) => s.tables.find((t) => t.name === name).columns.map((c) => `${c.name} ${c.type} — ${c.description ?? ""}`).join("\n");
+
+// Query results are { columns, rows: [[…]], truncated }. Convert them to objects.
+// e.g. builds per repo, last 30 days (builds has no repo column: join pipelines)
+const r = JSON.parse(txt(await tools.mcp__hotel__dx_insights_query({ query:
+  "SELECT p.repo_full_name, count(*) n FROM builds b JOIN pipelines p ON p.id = b.pipeline_id WHERE b.created_at >= now() - interval '30 days' GROUP BY 1 ORDER BY 2 DESC LIMIT 5" })));
+const rows = r.rows.map((row) => Object.fromEntries(r.columns.map((c, i) => [c.name, row[i]])));
+```
 
 ## Gotchas
 
-- **First call is slow / "still loading".** The docs corpus (a private repo) loads
-  asynchronously ~10s on cold start; the first call may return *"Culture Amp docs are
-  still loading, try again in ~10 seconds"*. The server is kept warm via mcporter's
-  keep-alive daemon, so just retry — subsequent calls are fast.
-- **Auth (`HOTEL_GITHUB_TOKEN`).** Hotel normally authenticates via the macOS
-  keychain, which the sandbox blocks — so it reads the token from
-  `HOTEL_GITHUB_TOKEN` instead (bound to hotel's `github.token`; needs the hotel
-  release with that env binding, from 2026-07-10). It's wired in the mcporter
-  `hotel` server config:
-
-  ```json
-  "env": { "HOTEL_GITHUB_TOKEN": "${GITHUB_TOKEN}" }
-  ```
-
-  If calls report *"docs could not be loaded"*, this token / the daemon env is the
-  thing to check — run `mcporter daemon restart` after any env change.
-- **Standards:** treat `ai_summary` as a hint only — fetch the full standard by `id`
-  before making decisions.
-
-## When to use a subagent
-
-`search_package_docs` and `dx_insights_query` output can be large. Offload multi-step
-digging (search → read standard → cross-check) to a subagent and have it return just
-the synthesized answer plus the source package/standard ids.
+- **The first call after pi starts may return "Culture Amp docs are still loading, try again in ~10 seconds".** The corpus loads asynchronously, so wait and retry.
+- **"docs could not be loaded"** means hotel's GitHub auth failed. Check `hotel doctor` and `gh auth status`, then reconnect hotel from `/mcp`.
+- To check DX data is fresh, look at `max(created_at)` or the table's equivalent date column.
+- For long multi-step digging (search → read standard → cross-check), use a subagent that returns the answer plus the package or standard ids.
