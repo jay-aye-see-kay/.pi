@@ -11,5 +11,8 @@ node_modules
 /agent/models-store.json
 /agent/mcp-auth.json
 
+# daily-review reports (may contain sensitive work content)
+/daily-reviews/
+
 # post-merge hook log
 /.githooks/last-post-merge.log
