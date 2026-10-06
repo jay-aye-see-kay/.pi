@@ -31,6 +31,10 @@
       "description": "Miro hosted MCP — read, build, and comment on Miro boards",
       "url": "https://mcp.miro.com/"
     },
+    "concierge": {
+      "description": "Concierge (Pip) — dispatch background coding agents that open PRs (read the concierge-background-agent skill first)",
+      "url": "https://concierge.meta.cultureamp.io/mcp"
+    },
     "cultureamp-mcp": {
       "description": "Culture Amp product MCP (production API gateway)",
       "url": "https://gw.production.api.cultureamp.com/mcp/cultureamp",
