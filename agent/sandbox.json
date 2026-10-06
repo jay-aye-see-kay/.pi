@@ -77,7 +77,9 @@
       "concierge.usw2.dev-us.cultureamp.io",
       "*.frame.claudeusercontent.com",
       "otel.security.cultureamp.net",
-      "http-intake.logs.us5.datadoghq.com"
+      "http-intake.logs.us5.datadoghq.com",
+      "content-types-prompts.prod-east.frontend.public.atl-paas.net",
+      "api.media.atlassian.com"
     ],
     "deniedDomains": []
   },
