@@ -21,16 +21,18 @@
 // bk reads BUILDKITE_API_TOKEN directly (highest precedence), so this works
 // even though the sandbox can't reach bk's own keyring credential store.
 //
-// For PI_CLAUDE_OAUTH_TOKEN (claude-artifact skill): run `claude setup-token`
-// (long-lived subscription token), then store it:
-//   security add-generic-password -U -a "$USER" -s pi-claude-oauth-token -w
-// Kept out of CLAUDE_CODE_OAUTH_TOKEN so it doesn't change how other claude
-// invocations authenticate; the skill's script passes it through itself.
+// No Claude token lives here: claude-backed tools (extensions/claude.ts) run
+// `claude` outside the sandbox with its own keychain login.
+//
+// Every loaded value is redacted from tool results (see below), so an
+// accidental `env` doesn't put a token in a session transcript.
 //
 // Map: env var name -> keychain generic-password service name.
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
+
+type JsonValue = NonNullable<ToolResultEvent["structuredContent"]> | null;
 
 const SECRETS: Record<string, string> = {
   GITHUB_TOKEN: "pi-github-token",
@@ -40,7 +42,6 @@ const SECRETS: Record<string, string> = {
   // github.com/jay-aye-see-kay/* remotes. gh's default stays the cultureamp token.
   GITHUB_PERSONAL_TOKEN: "pi-github-personal-token",
   BUILDKITE_API_TOKEN: "pi-buildkite-token",
-  PI_CLAUDE_OAUTH_TOKEN: "pi-claude-oauth-token",
 };
 
 function readKeychain(service: string): string | undefined {
@@ -56,12 +57,50 @@ function readKeychain(service: string): string | undefined {
   }
 }
 
-export default function (_pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI) {
   for (const [envVar, service] of Object.entries(SECRETS)) {
     if (process.env[envVar]) continue; // a launch-time value wins
     const value = readKeychain(service);
     if (value) process.env[envVar] = value;
   }
+
+  // Redact secret values from tool results (defense in depth: stops accidental
+  // leaks like `env`, not deliberate exfiltration). Nested calls (codemode ->
+  // bash) pass through here too, as does the outer codemode result.
+  const redactions = Object.keys(SECRETS)
+    .map((name) => ({ name, value: process.env[name] ?? "" }))
+    .filter((r) => r.value.length >= 12);
+  const redact = (s: string) => {
+    for (const r of redactions) if (s.includes(r.value)) s = s.split(r.value).join(`<redacted:${r.name}>`);
+    return s;
+  };
+  const redactDeep = (v: JsonValue): JsonValue => {
+    if (typeof v === "string") return redact(v);
+    if (Array.isArray(v)) return v.map(redactDeep);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, redactDeep(x)]));
+    return v;
+  };
+  pi.on("tool_result", (event) => {
+    if (redactions.length === 0) return;
+    let changed = false;
+    const content = event.content.map((c) => {
+      if (c.type !== "text") return c;
+      const text = redact(c.text);
+      if (text === c.text) return c;
+      changed = true;
+      return { ...c, text };
+    });
+    let structuredContent = event.structuredContent;
+    if (structuredContent !== undefined) {
+      const before = JSON.stringify(structuredContent);
+      const after = redactDeep(structuredContent);
+      if (JSON.stringify(after) !== before) {
+        structuredContent = after;
+        changed = true;
+      }
+    }
+    if (changed) return { content, structuredContent };
+  });
 
   // Point git at a standalone sandbox config (https + gh credential helper, no
   // ~/.ssh needed) and attribute commits to the agent as committer while the
