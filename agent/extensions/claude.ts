@@ -12,7 +12,10 @@
 // there's no Claude token in pi's or the sandbox's environment. Therefore:
 // - never give it the Bash tool or general file editing. Very limited, scoped
 //   file access is fine when a feature requires it (e.g. the Artifact tool can
-//   only save a page via an `Edit(<one out dir>/**)` rule);
+//   only save a page via an `Edit(<one out dir>/**)` rule, and only publishes
+//   a file it may `Read`, so publishing gets `Read(<one staged dir>/**)`);
+// - anything that sends local content out (publishing) is confirmed by the
+//   user first and refused without a UI;
 // - validate every model-supplied input before spawning; never pass free text
 //   through to claude's prompt;
 // - unrestricted network access is accepted (claude needs it anyway).
@@ -23,8 +26,18 @@
 import type { ExtensionAPI, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execFile, spawn } from "node:child_process";
-import { createWriteStream, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  copyFileSync,
+  createWriteStream,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -298,6 +311,172 @@ function artifactToolResult(run: ClaudeRun): string | undefined {
   return text && text.length > 4000 ? `${text.slice(0, 4000)}\n…(truncated)` : text;
 }
 
+// ── publishing ───────────────────────────────────────────────────────────────
+
+const PUBLISH_BASE = "/tmp/claude-artifact-publish";
+const PUBLISH_EXTS = new Set([".html", ".htm", ".md"]);
+const PUBLISH_MAX_BYTES = 2 * 1024 * 1024;
+const VERSION_ID_RE = /^[A-Za-z0-9-]{1,64}$/;
+
+// Token shapes that must never be published, beyond the exact values of STRIP_ENV vars.
+const SECRET_PATTERNS: [string, RegExp][] = [
+  ["GitHub token", /\b(gh[pousr]_[A-Za-z0-9]{36,}|github_pat_\w{40,})/],
+  ["Anthropic key", /\bsk-ant-[\w-]{20,}/],
+  ["AWS access key", /\bAKIA[0-9A-Z]{16}\b/],
+  ["Slack token", /\bxox[abprs]-[\w-]{10,}/],
+  ["private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
+];
+
+/** Names of secrets found in `text` (never their values). */
+function findSecrets(text: string): string[] {
+  const found = STRIP_ENV.filter((k) => (process.env[k]?.length ?? 0) >= 12 && text.includes(process.env[k]!));
+  for (const [name, re] of SECRET_PATTERNS) if (re.test(text)) found.push(name);
+  return found;
+}
+
+/** Short, single-line free text (title, label) that goes into claude's tool-call JSON. */
+function checkShortText(name: string, value: string | undefined, max: number): string | undefined {
+  if (value === undefined) return undefined;
+  value = value.trim();
+  if (!value || value.length > max || /[\p{Cc}\p{Cf}]/u.test(value)) {
+    throw new Error(`${name} must be 1-${max} characters on one line`);
+  }
+  return value;
+}
+
+export interface PublishOptions {
+  /** Existing artifact to overwrite; omit to create a new (private) one. */
+  url?: string;
+  /** HTML: used only if the page has no <title>. Markdown: becomes the file name, which is its title. */
+  title?: string;
+  /** Short name for this version. */
+  label?: string;
+  /** With `url`: only overwrite if the live version id is this one. */
+  expectVersion?: string;
+  /** Base for a relative `file`. */
+  cwd?: string;
+  /** Asked before anything is uploaded; publishing is refused without it. */
+  confirm?: (title: string, message: string) => Promise<boolean>;
+  signal?: AbortSignal;
+}
+
+export interface ArtifactPublish {
+  url: string;
+  version: number;
+  version_id: string;
+  /** With `url`: the version that was overwritten. */
+  previous_version_id?: string;
+  /** The staged copy that was uploaded. */
+  file: string;
+  log: string;
+  info?: string;
+}
+
+/**
+ * Publish a local .html or .md file as a claude.ai artifact (new and private,
+ * or a new version of `url`). The file is copied into a fresh staged dir,
+ * which is claude's cwd and the only place it may Read.
+ */
+export async function publishArtifact(file: string, opts: PublishOptions = {}): Promise<ArtifactPublish> {
+  // Validate everything before asking, staging or spawning.
+  const src = resolve(opts.cwd ?? process.cwd(), file);
+  const ext = extname(src).toLowerCase();
+  if (!PUBLISH_EXTS.has(ext)) throw new Error(`can only publish .html or .md files: ${file}`);
+  const st = statSync(src); // throws if missing
+  if (!st.isFile() || st.size === 0) throw new Error(`not a non-empty file: ${file}`);
+  if (st.size > PUBLISH_MAX_BYTES) throw new Error(`file is over ${PUBLISH_MAX_BYTES / 1024 / 1024} MB: ${file}`);
+  const target = opts.url ? resolveArtifactRef(opts.url).url : undefined;
+  const title = checkShortText("title", opts.title, 100);
+  const label = checkShortText("label", opts.label, 40);
+  const expectVersion = opts.expectVersion?.trim();
+  if (expectVersion !== undefined) {
+    if (!target) throw new Error("expect_version needs url");
+    if (!VERSION_ID_RE.test(expectVersion)) throw new Error(`not a version id: ${expectVersion}`);
+  }
+  const secrets = findSecrets(readFileSync(src, "utf8"));
+  if (secrets.length) throw new Error(`refusing to publish ${file}: it contains a secret (${[...new Set(secrets)].join(", ")})`);
+
+  const size = st.size < 1024 ? `${st.size} B` : `${(st.size / 1024).toFixed(1)} KB`;
+  const what = target
+    ? `Overwrite ${target}${expectVersion ? ` (if still version ${expectVersion})` : ""} with ${src} (${size})?`
+    : `Publish ${src} (${size}) to claude.ai as a new private artifact?`;
+  if (!opts.confirm) throw new Error("publishing needs the user's confirmation, and there's no UI to ask in");
+  if (!(await opts.confirm("Publish claude.ai artifact", what))) throw new Error("the user declined to publish");
+
+  // Stage. The basename becomes the title of a Markdown page.
+  mkdirSync(PUBLISH_BASE, { recursive: true });
+  const dir = realpathSync(mkdtempSync(`${PUBLISH_BASE}/`)); // realpath so the Read rule matches
+  const stem = (ext === ".md" && title ? title : basename(src, extname(src)))
+    .replace(/[^\p{L}\p{N} ._-]+/gu, "-").replace(/^[-. ]+|[-. ]+$/g, "").slice(0, 100) || "page";
+  const staged = join(dir, stem + ext);
+  copyFileSync(src, staged);
+  const log = join(dir, "claude.jsonl");
+
+  const publish = JSON.stringify({
+    file_path: staged,
+    ...(target ? { url: target } : {}),
+    ...(title && ext !== ".md" ? { title } : {}),
+    ...(label ? { label } : {}),
+  });
+  const noRetry = "If a call is refused or errors, do not retry, merge, edit or publish anything else: reply with the tool result text verbatim.";
+  // Overwriting needs a plain read in the same session (a saved copy doesn't count).
+  const prompt = target
+    ? `Call the Artifact tool at most twice, in order. First ${JSON.stringify({ action: "read", url: target })}. ` +
+      (expectVersion
+        ? `If the version id in its header is not exactly ${expectVersion}, stop and reply with only "VERSION_MISMATCH <the version id>". Otherwise, `
+        : "Then, ") +
+      `call it with ${publish}, publishing the file unchanged. ${noRetry} Otherwise reply with only the second tool result text.`
+    : `Call the Artifact tool exactly once with ${publish}. ${noRetry} Otherwise reply with only the tool's result text.`;
+
+  const run = await runClaude({
+    prompt,
+    cwd: dir,
+    logPath: log,
+    tools: ["Artifact", "Read"], // --tools denies unlisted tools, and publishing checks Read
+    allowedTools: ["Artifact", `Read(/${dir}/**)`],
+    env: { CLAUDE_CODE_ARTIFACT: "1" },
+    signal: opts.signal,
+  });
+
+  const texts = toolResultTexts(run);
+  const previous = target ? texts[0]?.match(/^\[Artifact \S+ \(version ([\w-]+)\)/)?.[1] : undefined;
+  for (const text of texts) {
+    const m = text.match(/^Published .* at (https:\/\/\S+) \(Version (\d+), version id ([\w-]+)\)/m);
+    if (!m) continue;
+    const result: ArtifactPublish = {
+      url: m[1],
+      version: Number(m[2]),
+      version_id: m[3],
+      ...(previous ? { previous_version_id: previous } : {}),
+      file: staged,
+      log,
+      info: text.length > 4000 ? `${text.slice(0, 4000)}\n…(truncated)` : text,
+    };
+    if (expectVersion && previous !== expectVersion) {
+      throw new Error(`published ${result.url} version ${result.version} over version ${previous ?? "?"}, not ${expectVersion} as expected; log: ${log}`);
+    }
+    return result;
+  }
+
+  // Failed: report the reason without any page HTML a refusal carries.
+  let reason = run.result?.trim() ?? "";
+  const mismatch = reason.match(/VERSION_MISMATCH\s+([\w-]+)/);
+  if (mismatch) reason = `the live version is ${mismatch[1]}, not ${expectVersion}; nothing was published`;
+  else if (texts.length) reason = texts[texts.length - 1].split(/\n\[Artifact |\n<[\w-]*html>/)[0].slice(0, 1000);
+  else reason = failureReason(run, log);
+  throw new Error(`could not publish ${file}:\n${reason}\nfull log: ${log}`);
+}
+
+function formatPublish(r: ArtifactPublish): string {
+  return [
+    `Published ${r.url} (version ${r.version}, version id ${r.version_id})`,
+    ...(r.previous_version_id ? [`Overwrote version id ${r.previous_version_id}.`] : []),
+    "It's private: only its owner and people given access can open it. Share it from the page's Share menu.",
+    `staged file: ${r.file}`,
+    `log: ${r.log}`,
+  ].join("\n");
+}
+
 function formatArtifact(r: ArtifactFetch): string {
   const lines = [`html: ${r.html}`, `md:   ${r.md}`, `log:  ${r.log}`];
   if (r.connectors) lines.push("", "Connector calls in the page source:", ...r.connectors.map((c) => `- ${c}`));
@@ -346,10 +525,66 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  pi.registerTool({
+    name: "claude_artifact_publish",
+    label: "publish claude artifact",
+    exposure: "deferred",
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+    description:
+      "Publish a local .html or .md file to claude.ai as an artifact via Claude Code's Artifact tool. Without `url` it creates a " +
+      "new private artifact; with `url` it overwrites that artifact with a new version (anything saved there since is lost). " +
+      "Asks the user to confirm, and refuses files containing secrets. Sharing is only possible from the page's Share menu. " +
+      "Takes about 10s.",
+    parameters: Type.Object({
+      file: Type.String({ description: "Local .html or .md file (max 2 MB). Markdown is published as-is; its file name becomes the title." }),
+      url: Type.Optional(Type.String({ description: "Existing artifact URL or ID to overwrite. Omit to create a new artifact." })),
+      title: Type.Optional(Type.String({ description: "HTML: title used only when the page has no <title>. Markdown: the page title (file name)." })),
+      label: Type.Optional(Type.String({ description: "Short name for this version, max 40 characters." })),
+      expect_version: Type.Optional(Type.String({ description: "With url: only overwrite if the live version id is this (from a previous publish or read)." })),
+    }),
+    outputSchema: Type.Object({
+      url: Type.String(),
+      version: Type.Number(),
+      version_id: Type.String(),
+      previous_version_id: Type.Optional(Type.String()),
+      file: Type.String(),
+      log: Type.String(),
+      info: Type.Optional(Type.String()),
+    }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const r = await publishArtifact(params.file, {
+        url: params.url,
+        title: params.title,
+        label: params.label,
+        expectVersion: params.expect_version,
+        cwd: ctx.cwd,
+        confirm: ctx.hasUI ? (t, m) => ctx.ui.confirm(t, m) : undefined,
+        signal,
+      });
+      return {
+        content: [{ type: "text" as const, text: formatPublish(r) }],
+        structuredContent: { ...r },
+        details: {},
+      };
+    },
+  });
+
   pi.registerCommand("artifact", {
-    description: "Fetch a claude.ai artifact as Markdown: /artifact <url-or-id>",
+    description: "claude.ai artifacts: /artifact <url-or-id> fetches as Markdown; /artifact publish <file> [url] publishes",
     handler: async (args, ctx) => {
-      if (!args.trim()) return ctx.ui.notify("usage: /artifact <url-or-id>", "warning");
+      const [sub, ...rest] = args.trim().split(/\s+/);
+      if (sub === "publish") {
+        const [file, url] = rest;
+        if (!file || rest.length > 2) return ctx.ui.notify("usage: /artifact publish <file> [url-to-overwrite]", "warning");
+        try {
+          const r = await publishArtifact(file, { url, cwd: ctx.cwd, confirm: (t, m) => ctx.ui.confirm(t, m) });
+          ctx.ui.notify(formatPublish(r), "info");
+        } catch (e) {
+          ctx.ui.notify(String(e instanceof Error ? e.message : e), "error");
+        }
+        return;
+      }
+      if (!sub) return ctx.ui.notify("usage: /artifact <url-or-id> | /artifact publish <file> [url]", "warning");
       ctx.ui.notify("Fetching artifact…", "info");
       try {
         ctx.ui.notify(formatArtifact(await fetchArtifact(args)), "info");
