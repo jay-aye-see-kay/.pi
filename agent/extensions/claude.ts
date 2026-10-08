@@ -20,14 +20,16 @@
 // installed plugins, hooks, skills, CLAUDE.md, auto-memory), no user/project/
 // local settings, no MCP servers, no session persistence, and pi's other
 // secrets are stripped from its env.
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execFile, spawn } from "node:child_process";
-import { createWriteStream, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { createWriteStream, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+
+type JsonValue = NonNullable<ToolResultEvent["structuredContent"]> | null;
 
 const TIMEOUT_MS = 120_000;
 
@@ -163,9 +165,20 @@ export interface ArtifactFetch {
   info?: string;
   /** Connector (MCP) calls found in the page source, as "<server>: <tool> (<method>)". */
   connectors?: string[];
+  /** With `metadata`: the plain (no-path) read's result, minus the raw HTML. */
+  metadata?: string;
+  /** With `metadata`: the full plain-read result, saved to disk. */
+  metadata_file?: string;
+  /** With `metadata`: the stored declaration, e.g. {"mcp":{"servers":[{"server","tools"}]}}. */
+  declaration?: JsonValue;
 }
 
-export async function fetchArtifact(ref: string, outDir?: string, signal?: AbortSignal): Promise<ArtifactFetch> {
+export async function fetchArtifact(
+  ref: string,
+  outDir?: string,
+  signal?: AbortSignal,
+  metadata = false,
+): Promise<ArtifactFetch> {
   const { url, id } = resolveArtifactRef(ref); // before anything touches disk or spawns
   const dir = outDir ?? join(ARTIFACT_BASE, id);
   mkdirSync(dir, { recursive: true });
@@ -198,7 +211,48 @@ export async function fetchArtifact(ref: string, outDir?: string, signal?: Abort
 
   await execFileAsync("pandoc", ["-f", "html", "-t", "gfm-raw_html", "--wrap=none", html, "-o", md], { signal });
   const connectors = findConnectorCalls(readFileSync(html, "utf8"));
-  return { html, md, log, info: artifactToolResult(run), ...(connectors.length ? { connectors } : {}) };
+  const result: ArtifactFetch = { html, md, log, info: artifactToolResult(run), ...(connectors.length ? { connectors } : {}) };
+  if (metadata) Object.assign(result, await readArtifactMetadata(url, out, signal));
+  return result;
+}
+
+/**
+ * A plain read (url only, no path): what Claude Code's TUI gets. It returns a
+ * header plus the live page's raw HTML, so the whole page enters Haiku's
+ * context (costs tokens). Saves the full tool result; returns it without the HTML.
+ */
+async function readArtifactMetadata(url: string, out: string, signal?: AbortSignal) {
+  const log = join(out, "claude-metadata.jsonl");
+  const file = join(out, "read.txt");
+  const call = JSON.stringify({ action: "read", url });
+  const run = await runClaude({
+    prompt: `Call the Artifact tool once with ${call}. Then reply with only the word done.`,
+    cwd: out,
+    logPath: log,
+    tools: ["Artifact"],
+    env: { CLAUDE_CODE_ARTIFACT: "1" },
+    signal,
+  });
+  const text = toolResultTexts(run).join("\n\n");
+  if (!text) throw new Error(`metadata read of ${url} failed:\n${failureReason(run, log)}\nfull log: ${log}`);
+  writeFileSync(file, text);
+  // Drop the raw HTML, wrapped in e.g. <cowritten-artifact-html>…</cowritten-artifact-html>.
+  const head = text.replace(/^(<([\w-]*html)>)$[\s\S]*?^(<\/\2>)$/gm, "$1\n…(raw HTML omitted; same as index.html)\n$3");
+  // The connector/capability declaration the page was published with, if any.
+  let declaration: JsonValue | undefined;
+  const decl = text.match(/^<artifact-stored-declaration>$\s*([\s\S]*?)\s*^<\/artifact-stored-declaration>$/m);
+  if (decl) {
+    try {
+      declaration = JSON.parse(decl[1]);
+    } catch {
+      /* leave it in the text */
+    }
+  }
+  return {
+    metadata: head.length > 8000 ? `${head.slice(0, 8000)}\n…(truncated)` : head,
+    metadata_file: file,
+    ...(declaration !== undefined ? { declaration } : {}),
+  };
 }
 
 /**
@@ -222,8 +276,9 @@ function findConnectorCalls(src: string): string[] {
   return [...found];
 }
 
-/** Text of the Artifact tool's tool_result, from the stream-json events. */
-function artifactToolResult(run: ClaudeRun): string | undefined {
+/** Texts of all tool_results, from the stream-json events. */
+function toolResultTexts(run: ClaudeRun): string[] {
+  const texts: string[] = [];
   for (const e of run.events) {
     if (e?.type !== "user") continue;
     for (const c of e.message?.content ?? []) {
@@ -231,16 +286,23 @@ function artifactToolResult(run: ClaudeRun): string | undefined {
       const text = typeof c.content === "string"
         ? c.content
         : (c.content ?? []).filter((p: any) => p?.type === "text").map((p: any) => p.text).join("\n");
-      if (text) return text.length > 4000 ? `${text.slice(0, 4000)}\n…(truncated)` : text;
+      if (text) texts.push(text);
     }
   }
-  return run.result;
+  return texts;
+}
+
+/** Text of the Artifact tool's tool_result. */
+function artifactToolResult(run: ClaudeRun): string | undefined {
+  const text = toolResultTexts(run)[0] ?? run.result;
+  return text && text.length > 4000 ? `${text.slice(0, 4000)}\n…(truncated)` : text;
 }
 
 function formatArtifact(r: ArtifactFetch): string {
   const lines = [`html: ${r.html}`, `md:   ${r.md}`, `log:  ${r.log}`];
   if (r.connectors) lines.push("", "Connector calls in the page source:", ...r.connectors.map((c) => `- ${c}`));
   if (r.info) lines.push("", "Artifact tool result:", r.info);
+  if (r.metadata) lines.push("", `Plain read (full: ${r.metadata_file}):`, r.metadata);
   return lines.join("\n");
 }
 
@@ -260,6 +322,9 @@ export default function (pi: ExtensionAPI) {
         description: "Artifact URL (claude.ai/artifact/<id>, claude.ai/code/artifact/<uuid>, *.claude.ai/...), short ID, or UUID.",
       }),
       out_dir: Type.Optional(Type.String({ description: "Output directory. Default: /tmp/claude-artifact/<id>." })),
+      metadata: Type.Optional(
+        Type.Boolean({ description: "Also do a plain read (as Claude Code's TUI does): returns its header, incl. the page's declared connectors (owner, sharing, version). Adds ~10s and ~$0.03." }),
+      ),
     }),
     outputSchema: Type.Object({
       html: Type.String(),
@@ -267,9 +332,12 @@ export default function (pi: ExtensionAPI) {
       log: Type.String(),
       info: Type.Optional(Type.String()),
       connectors: Type.Optional(Type.Array(Type.String())),
+      metadata: Type.Optional(Type.String()),
+      metadata_file: Type.Optional(Type.String()),
+      declaration: Type.Optional(Type.Unknown()),
     }),
     async execute(_id, params, signal) {
-      const r = await fetchArtifact(params.url, params.out_dir, signal);
+      const r = await fetchArtifact(params.url, params.out_dir, signal, params.metadata);
       return {
         content: [{ type: "text" as const, text: formatArtifact(r) }],
         structuredContent: { ...r },

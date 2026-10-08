@@ -24,6 +24,8 @@ Notes:
 - Takes about 10s, whatever the artifact's size.
 - `page.md` is an exact conversion of the page HTML. Mermaid diagrams stay as fenced code. Content rendered by scripts (charts, live connector data) is only in `index.html`, if at all. `page.md` can be long, so check its size before reading the whole thing.
 - On failure the call throws with the reason and the log path. Tell the user the reason and don't try another way to fetch it.
+- `metadata: true` adds a second, plain read (what Claude Code's TUI sees), about 10s and $0.03 more. It returns `metadata` (the header: owner, sharing, version, stored declaration; raw HTML removed), `metadata_file` (the full reply) and `declaration`, the connectors the page was published with, e.g. `{"mcp":{"servers":[{"server":"Atlassian Rovo","tools":["searchJiraIssuesUsingJql"]}]}}`. Use it when the user asks who owns or shared an artifact, or exactly which connectors it uses; `connectors` from the source scan is usually enough.
+- Pages that use connectors fetch live data in the viewer's browser, so no read gets that data. To show it, run the same query through pi's own MCP (e.g. `mcp__atlassian` for Atlassian Rovo) using the inputs found in `index.html`.
 - The user can also run `/artifact <url-or-id>` themselves.
 
 ## How it works
