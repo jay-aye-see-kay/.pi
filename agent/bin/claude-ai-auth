@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Print an Authorization header value for Anthropic's claude.ai connector proxy
+# (https://mcp-proxy.anthropic.com/v1/mcp/<server_id>), using the claude.ai OAuth
+# access token that Claude Code keeps in the macOS keychain.
+#
+# Read-only: Claude Code owns and refreshes this token. If it has expired, run
+# `claude` once to refresh it. Must run outside the sandbox (keychain access).
+set -euo pipefail
+
+creds=$(security find-generic-password -a "$USER" -s "Claude Code-credentials" -w)
+expires_ms=$(jq -r '.claudeAiOauth.expiresAt // 0' <<<"$creds")
+if (( expires_ms / 1000 <= $(date +%s) )); then
+  echo "claude-ai-auth: Claude Code token expired; run \`claude\` to refresh it" >&2
+  exit 1
+fi
+printf 'Bearer %s' "$(jq -r '.claudeAiOauth.accessToken' <<<"$creds")"

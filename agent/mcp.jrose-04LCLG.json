@@ -19,6 +19,14 @@
         "callbackUrl": "http://localhost:3118/callback"
       }
     },
+    "google-calendar": {
+      "description": "Google calendar",
+      "url": "https://mcp-proxy.anthropic.com/v1/mcp/mcpsrv_01E8dwUErvKbLg9ZJhnqL8aV",
+      "headers": {
+        "Authorization": "!~/.pi/agent/bin/claude-ai-auth",
+        "X-Mcp-Client-Session-Id": "c8685150-0aa3-49e7-a69b-9d31aaf07a87"
+      }
+    },
     "glean": {
       "description": "Glean hosted MCP — search Culture Amp company knowledge and people (Confluence, Jira, Slack, GDrive…)",
       "url": "https://culture-amp-be.glean.com/mcp/default"
@@ -39,6 +47,21 @@
       "description": "Culture Amp product MCP (production API gateway)",
       "url": "https://gw.production.api.cultureamp.com/mcp/cultureamp",
       "enabled": false
+    },
+    "google-drive": {
+      "description": "Google Drive, read-only",
+      "url": "https://mcp-proxy.anthropic.com/v1/mcp/mcpsrv_014DT8ERwPgShJ7vKx8RmTnb",
+      "headers": {
+        "Authorization": "!~/.pi/agent/bin/claude-ai-auth",
+        "X-Mcp-Client-Session-Id": "87b4c8a5-51ac-4fe0-bef2-f720d4427e68"
+      },
+      "toolExposure": {
+        "copy_file": "hidden",
+        "create_file": "hidden",
+        "share_file": "hidden",
+        "trash_file": "hidden",
+        "update_file": "hidden"
+      }
     }
   }
 }
