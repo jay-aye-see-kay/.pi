@@ -3,6 +3,10 @@
     "exa": {
       "description": "Exa hosted MCP — web search and page fetch",
       "url": "https://mcp.exa.ai/mcp"
+    },
+    "aws-knowledge": {
+      "description": "AWS Knowledge MCP — search/read AWS docs, regional availability, SOPs",
+      "url": "https://knowledge-mcp.global.api.aws"
     }
   }
 }

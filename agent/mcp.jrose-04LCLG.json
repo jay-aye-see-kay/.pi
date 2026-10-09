@@ -62,6 +62,10 @@
         "trash_file": "hidden",
         "update_file": "hidden"
       }
+    },
+    "aws-knowledge": {
+      "description": "AWS Knowledge MCP — search/read AWS docs, regional availability, SOPs",
+      "url": "https://knowledge-mcp.global.api.aws"
     }
   }
 }
