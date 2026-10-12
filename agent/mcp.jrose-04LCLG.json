@@ -25,7 +25,8 @@
       "headers": {
         "Authorization": "!~/.pi/agent/bin/claude-ai-auth",
         "X-Mcp-Client-Session-Id": "c8685150-0aa3-49e7-a69b-9d31aaf07a87"
-      }
+      },
+      "enabled": false
     },
     "glean": {
       "description": "Glean hosted MCP — search Culture Amp company knowledge and people (Confluence, Jira, Slack, GDrive…)",
@@ -61,7 +62,8 @@
         "share_file": "hidden",
         "trash_file": "hidden",
         "update_file": "hidden"
-      }
+      },
+      "enabled": false
     },
     "aws-knowledge": {
       "description": "AWS Knowledge MCP — search/read AWS docs, regional availability, SOPs",

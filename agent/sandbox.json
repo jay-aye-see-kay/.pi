@@ -79,7 +79,9 @@
       "otel.security.cultureamp.net",
       "http-intake.logs.us5.datadoghq.com",
       "content-types-prompts.prod-east.frontend.public.atl-paas.net",
-      "api.media.atlassian.com"
+      "api.media.atlassian.com",
+      "www.nixsearch.com",
+      "169.254.169.254"
     ],
     "deniedDomains": []
   },
