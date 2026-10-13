@@ -1,4 +1,5 @@
 {
+  "$schema": "https://pi.dev/schemas/keybindings.schema.json",
   "// --- EDITOR: emacs-style movement (mostly defaults, made explicit) ---": "",                
   "tui.editor.cursorLeft":      ["left", "ctrl+b"],
   "tui.editor.cursorRight":     ["right", "ctrl+f"],
