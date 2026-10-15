@@ -7,6 +7,7 @@
     "allowUnixSockets": [
       "/nix/var/nix/daemon-socket",
       "/private/var/run/nix-daemon.socket",
+      "/private/tmp/claude",
       "~/work",
       "~/tmp"
     ],
