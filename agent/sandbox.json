@@ -3,7 +3,13 @@
   "enableWeakerNetworkIsolation": true,
   "network": {
     "allowLocalBinding": true,
-    "allowAllUnixSockets": true,
+    "allowAllUnixSockets": false,
+    "allowUnixSockets": [
+      "/nix/var/nix/daemon-socket",
+      "/private/var/run/nix-daemon.socket",
+      "~/work",
+      "~/tmp"
+    ],
     "allowMachLookup": [
       "com.apple.FSEvents"
     ],
@@ -91,6 +97,7 @@
       "~/.aws/credentials",
       "~/.aws/login",
       "~/.gnupg",
+      "~/.lima/_config",
       "~/.ssh",
       "~/Library/Keychains",
       "~/obsidian/notes/personal/"

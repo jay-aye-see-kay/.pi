@@ -57,7 +57,7 @@ index 326c8d9..d4905a7 100644
              const segments = absolutePath.split(path.sep);
              const dirIndex = segments.findIndex(s => normalizeCaseForComparison(s) === normalizedDirName);
 diff --git a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js b/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js
-index d880278..ca454ea 100644
+index d880278..50f5302 100644
 --- a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js
 +++ b/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js
 @@ -32,14 +32,7 @@ export function macGetMandatoryDenyEntries(allowGitConfig = false) {
@@ -76,6 +76,25 @@ index d880278..ca454ea 100644
      return entries;
  }
  const sessionSuffix = `_${Math.random().toString(36).slice(2, 11)}_SBX`;
+@@ -741,6 +734,10 @@ function generateSandboxProfile({ readConfig, libraryDenyEntries, writeConfig, h
+         '; POSIX IPC - semaphores for Python multiprocessing',
+         '(allow ipc-posix-sem)',
+         '',
++        '; PATCHED (pi-sandbox-local): System V shared memory + semaphores (PostgreSQL).',
++        '(allow ipc-sysv-shm)',
++        '(allow ipc-sysv-sem)',
++        '',
+         '; IOKit - specific operations only',
+         '(allow iokit-open',
+         '  (iokit-registry-entry-class "IOSurfaceRootUserClient")',
+@@ -760,6 +757,7 @@ function generateSandboxProfile({ readConfig, libraryDenyEntries, writeConfig, h
+         '  (sysctl-name "hw.busfrequency_compat")',
+         '  (sysctl-name "hw.byteorder")',
+         '  (sysctl-name "hw.cacheconfig")',
++        '  (sysctl-name "hw.cachelinesize")', // PATCHED (pi-sandbox-local): MySQL 8 Aligned_atomic
+         '  (sysctl-name "hw.cachelinesize_compat")',
+         '  (sysctl-name "hw.cpufamily")',
+         '  (sysctl-name "hw.cpufrequency")',
 diff --git a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js b/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js
 index 8c0fe06..ec94727 100644
 --- a/node_modules/@anthropic-ai/sandbox-runtime/dist/sandbox/sandbox-utils.js
