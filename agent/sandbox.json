@@ -106,7 +106,6 @@
     ],
     "allowRead": [
       ".",
-      "/Users/jack.rose*",
       "/nix",
       "/private/tmp",
       "/private/var/folders",
