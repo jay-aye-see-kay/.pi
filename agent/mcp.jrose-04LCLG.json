@@ -71,6 +71,10 @@
     },
     "superlogical": {
       "url": "https://www.superlogical.com/rex/community-mcp"
+    },
+    "lakeview": {
+      "description": "Lakeview MCP - DX data (get_schema, query) plus Culture Amp package docs, engineering standards and tech radar",
+      "url": "https://concierge.meta.cultureamp.io/mcp/lakeview"
     }
   }
 }
