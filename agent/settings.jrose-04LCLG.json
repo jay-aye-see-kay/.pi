@@ -31,6 +31,6 @@
   "tuiMode": "regular",
   "treeFilterMode": "no-tools",
   "sessionTitle": {
-    "model": "github-copilot/gpt-6-luna"
+    "model": "github-copilot/claude-haiku-5.5"
   }
 }

@@ -14,7 +14,7 @@
  * from the last one we set, it's treated as manual.
  *
  * Config (per-host settings.json):
- *   "sessionTitle": { "model": "github-copilot/gpt-5.6-luna" }
+ *   "sessionTitle": { "model": "github-copilot/claude-haiku-5.5" }
  * No key = disabled. Skipped when there's no UI (print/json mode, subagents).
  */
 
@@ -122,10 +122,15 @@ export default function (pi: ExtensionAPI) {
         .streamSimple(
           model,
           { systemPrompt, messages: [{ role: "user", content: input, timestamp: Date.now() }] },
-          { signal: controller.signal, maxTokens: 64 },
+          // Headroom: if the model reasons by default, thinking spends output tokens before the title.
+          { signal: controller.signal, maxTokens: 1024 },
         )
         .result();
-      if (controller.signal.aborted || result.stopReason === "error" || result.stopReason === "aborted") return undefined;
+      if (controller.signal.aborted || result.stopReason === "aborted") return undefined;
+      if (result.stopReason !== "stop") {
+        ctx.ui.notify(`session-title: no title (${result.stopReason}${result.errorMessage ? `: ${result.errorMessage}` : ""})`, "warning");
+        return undefined;
+      }
       return textOf(result.content).trim() || undefined;
     } catch {
       return undefined;

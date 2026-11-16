@@ -17,6 +17,6 @@
   "tuiMode": "regular",
   "treeFilterMode": "no-tools",
   "sessionTitle": {
-    "model": "opencode-go/gpt-6-luna"
+    "model": "opencode-go/claude-haiku-5.5"
   }
 }
