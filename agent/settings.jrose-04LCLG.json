@@ -29,5 +29,8 @@
   },
   "collapseChangelog": true,
   "tuiMode": "regular",
-  "treeFilterMode": "no-tools"
+  "treeFilterMode": "no-tools",
+  "sessionTitle": {
+    "model": "github-copilot/gpt-6-luna"
+  }
 }

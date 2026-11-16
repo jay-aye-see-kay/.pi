@@ -15,5 +15,8 @@
   },
   "collapseChangelog": true,
   "tuiMode": "regular",
-  "treeFilterMode": "no-tools"
+  "treeFilterMode": "no-tools",
+  "sessionTitle": {
+    "model": "opencode-go/gpt-6-luna"
+  }
 }
