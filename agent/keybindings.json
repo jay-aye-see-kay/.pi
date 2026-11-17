@@ -43,7 +43,7 @@
   "// --- DISPLACED: move ctrl+p / ctrl+n away from session picker toggles ---": "",
   "app.session.togglePath":         ["alt+p"],
   "app.session.toggleNamedFilter":  ["alt+n"],
-  "app.session.toggleSort":         ["ctrl+s"],
+  "app.session.toggleSort":         [],
 
   "// --- INPUT: free ctrl+j for snippets extension (keep shift+enter for newline) ---": "",
   "tui.input.newLine": ["shift+enter"],
@@ -52,6 +52,7 @@
   "ext.intent.cycleMode": ["shift+tab"],
   "ext.snippets.expand": ["ctrl+j"],
   "ext.subagent.toggle": ["ctrl+shift+a"],
+  "ext.stash.swap": ["ctrl+s"],
   "ext.thinking.cycleBackward": ["ctrl+shift+u"],
 
   "// --- TREE NAVIGATION ---": "",
