@@ -13,6 +13,9 @@
  * auto titles are recorded as custom entries, and if the current name differs
  * from the last one we set, it's treated as manual.
  *
+ * /retitle generates a fresh title from the conversation on demand, replacing
+ * any current name (including manual ones).
+ *
  * Config (per-host settings.json):
  *   "sessionTitle": { "model": "github-copilot/claude-haiku-5.5" }
  * No key = disabled. Skipped when there's no UI (print/json mode, subagents).
@@ -38,6 +41,11 @@ Only change it if the main goal has changed or the title is clearly misleading -
 If the title still fits, reply with exactly: KEEP
 Otherwise reply with the new title only.
 ${STYLE}`;
+
+const MANUAL_RETITLE_PROMPT = `You name coding-agent sessions so the user can tell their terminal tabs apart.
+Below is the conversation so far. Write a short title describing its main task or goal, not the tools.
+${STYLE}
+Reply with the title only.`;
 
 function readModelSetting(): string | undefined {
   try {
@@ -139,18 +147,37 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
-  function apply(ctx: ExtensionContext, raw: string | undefined) {
-    if (!raw || cleanTitle(raw).toUpperCase() === "KEEP") return;
+  /** Returns the title applied, if any. `force` overrides a manually set name. */
+  function apply(ctx: ExtensionContext, raw: string | undefined, force = false): string | undefined {
+    if (!raw || cleanTitle(raw).toUpperCase() === "KEEP") return undefined;
     try {
-      if (isManuallyNamed(ctx)) return; // user named it while we were waiting
+      if (!force && isManuallyNamed(ctx)) return undefined; // user named it while we were waiting
       const title = cleanTitle(raw);
-      if (!title || title === pi.getSessionName()) return;
+      if (!title) return undefined;
+      if (title === pi.getSessionName()) return title;
       pi.appendEntry(ENTRY_TYPE, { name: title });
       pi.setSessionName(title);
+      return title;
     } catch {
       // ctx went stale (session switched/closed mid-call): drop the title
+      return undefined;
     }
   }
+
+  pi.registerCommand("retitle", {
+    description: "Generate a new AI session title from the conversation",
+    handler: async (_args, ctx) => {
+      const text = transcript(ctx);
+      if (!text.trim()) {
+        ctx.ui.notify("retitle: nothing to name yet", "info");
+        return;
+      }
+      ctx.ui.notify("Generating title…", "info");
+      const title = apply(ctx, await ask(ctx, MANUAL_RETITLE_PROMPT, text), true);
+      if (title) ctx.ui.notify(`Renamed: ${title}`, "info");
+      else ctx.ui.notify("retitle: no title generated", "warning");
+    },
+  });
 
   pi.on("session_shutdown", () => inFlight?.abort());
 
