@@ -40,6 +40,10 @@
   "app.thinking.cycle":  ["ctrl+u"],
   "app.thinking.toggle": ["ctrl+t"],
 
+  "// --- PICKER 'SAVE AS DEFAULT': moved off ctrl+s (prompt-stash); enter selects, shift+enter selects + saves ---": "",
+  "app.thinking.save": ["shift+enter"],
+  "app.models.save":   ["shift+enter"],
+
   "// --- DISPLACED: move ctrl+p / ctrl+n away from session picker toggles ---": "",
   "app.session.togglePath":         ["alt+p"],
   "app.session.toggleNamedFilter":  ["alt+n"],
