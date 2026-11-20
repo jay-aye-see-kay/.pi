@@ -3,11 +3,12 @@
   "lastChangelogVersion": "1.5.2",
   "theme": "light",
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-5.5",
+  "defaultModel": "gemini-4-neon",
   "defaultThinkingLevel": "medium",
   "enabledModels": [
     "github-copilot/claude-opus-5.5",
     "github-copilot/gpt-6.1-sol",
+    "github-copilot/gemini-4-neon",
     "anthropic/claude-fable-5-2"
   ],
   "subagentModels": {
